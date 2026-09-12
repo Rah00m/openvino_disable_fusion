@@ -1,5 +1,5 @@
 
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -78,6 +78,14 @@ KERNEL(scatter_nd_update_opt)(OPTIONAL_SHAPE_INFO_ARG
     uint target_coord[INDICES_MAX_DIM];
     uint g_coord[INDICES_MAX_DIM] = { INPUT2_ORDER };
 
+#if INPUT0_DIMS <= 4
+    const uint data_dim[INPUT0_DIMS] = {INPUT0_BATCH_NUM, INPUT0_FEATURE_NUM, INPUT0_SIZE_Y, INPUT0_SIZE_X};
+#elif INPUT0_DIMS == 5
+    const uint data_dim[INPUT0_DIMS] = {INPUT0_BATCH_NUM, INPUT0_FEATURE_NUM, INPUT0_SIZE_Z, INPUT0_SIZE_Y, INPUT0_SIZE_X};
+#elif INPUT0_DIMS == 6
+    const uint data_dim[INPUT0_DIMS] = {INPUT0_BATCH_NUM, INPUT0_FEATURE_NUM, INPUT0_SIZE_W, INPUT0_SIZE_Z, INPUT0_SIZE_Y, INPUT0_SIZE_X};
+#endif
+
 #if INPUT1_LENGTH == 1 && INDICES_RANK == 1
     for (uint i = 0; i < OUTPUT_DIMS; ++i) {
         target_coord[i] = g_coord[i];
@@ -89,7 +97,8 @@ KERNEL(scatter_nd_update_opt)(OPTIONAL_SHAPE_INFO_ARG
 
     for (uint i = 0; i < INDICES_LAST_DIM; ++i) {
         indices_coord[INDICES_RANK - 1] = i;
-        target_coord[i] = indices[GET_INDICES_INDEX(INPUT1_ORDER)];
+        int indices_val = indices[GET_INDICES_INDEX(INPUT1_ORDER)];
+        target_coord[i] = indices_val < 0 ? indices_val + (int)data_dim[i] : indices_val;
     }
 
     for (uint i = INDICES_LAST_DIM; i < OUTPUT_DIMS; ++i) {

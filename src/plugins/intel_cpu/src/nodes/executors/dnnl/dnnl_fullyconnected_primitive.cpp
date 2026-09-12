@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -8,7 +8,7 @@
 
 #include <cassert>
 #include <common/primitive_attr.hpp>
-#include <common/primitive_hashing_utils.hpp>
+#include <common/primitive_hashing.hpp>
 #include <common/utils.hpp>
 #include <cstddef>
 #include <cstdint>
@@ -19,7 +19,6 @@
 #include <vector>
 
 #include "config.h"
-#include "cpu/x64/cpu_isa_traits.hpp"
 #include "cpu_memory.h"
 #include "cpu_types.h"
 #include "dnnl_extension_utils.h"
@@ -37,6 +36,8 @@
 #include "onednn/iml_type_mapper.h"
 #include "openvino/core/except.hpp"
 #include "openvino/core/type/element_type.hpp"
+#include "openvino/runtime/system_conf.hpp"
+#include "thread_pool_imp.hpp"
 #include "utils/cpu_utils.hpp"
 #include "utils/debug_capabilities.h"
 #include "utils/general_utils.h"
@@ -107,7 +108,10 @@ std::shared_ptr<DnnlFCPrimitive> DnnlFCPrimitive::create(const MemoryArgs& memor
                   attrs.modelType};
 
     auto builder = [&context](const Key& dnnlKey) {
-        return std::make_shared<DnnlFCPrimitive>(dnnlKey, context->getEngine(), context->getImplPriorities());
+        return std::make_shared<DnnlFCPrimitive>(dnnlKey,
+                                                 context->getEngine(),
+                                                 context->getThreadPool(),
+                                                 context->getImplPriorities());
     };
 
     auto runtimeCache = context->getRuntimeCache();
@@ -120,8 +124,8 @@ std::shared_ptr<DnnlFCPrimitive> DnnlFCPrimitive::create(const MemoryArgs& memor
 
 DnnlMemoryDescPtr DnnlFCPrimitive::makeTransposedWeightDescriptor(const DnnlMemoryDescPtr& srcDesc,
                                                                   [[maybe_unused]] const DnnlMemoryDescPtr& dstDesc,
-                                                                  bool weightsNonTransposed) {
-    if (!weightsNonTransposed) {
+                                                                  const FCAttrs& attrs) {
+    if (!attrs.weightsNonTransposed) {
         return srcDesc;
     }
 
@@ -137,8 +141,8 @@ DnnlMemoryDescPtr DnnlFCPrimitive::makeTransposedWeightDescriptor(const DnnlMemo
 bool DnnlFCPrimitive::useWeightsDecompressionImpl(const ov::element::Type inputType,
                                                   const ov::element::Type weightsType,
                                                   const ov::intel_cpu::Config::ModelType modelType) {
-    if (dnnl::impl::cpu::x64::mayiuse(dnnl::impl::cpu::x64::avx2)) {
-        if (one_of(inputType, f32, bf16) && one_of(weightsType, u8, i8, nf4, u4, i4, f4e2m1)) {
+    if (ov::with_cpu_x86_avx2()) {
+        if (any_of(inputType, f32, bf16) && any_of(weightsType, u8, i8, nf4, u4, i4, f4e2m1, u2)) {
             return true;
         }
 
@@ -146,7 +150,7 @@ bool DnnlFCPrimitive::useWeightsDecompressionImpl(const ov::element::Type inputT
             // f16c kernel saves memory footprint with additional decompression computational overhead
             // which is only meaningful on LLM with small batch-size.
             // TODO: fall-back to use f32 weights on large batch-size
-            if (inputType == f32 && one_of(weightsType, f16, bf16)) {
+            if (inputType == f32 && any_of(weightsType, f16, bf16)) {
                 return true;
             }
         }
@@ -162,12 +166,23 @@ static bool useDynamicQuantizationImpl(size_t dqGroupSize,
         return false;
     }
 
-    if (!dnnl::impl::cpu::x64::mayiuse(dnnl::impl::cpu::x64::avx2_vnni) &&
-        !dnnl::impl::cpu::x64::mayiuse(dnnl::impl::cpu::x64::avx512_core_vnni)) {
-        return false;
-    }
-
-    if (srcDesc->getPrecision() != ov::element::f32) {
+    // BF16 dynamic-quant path requires native x86 BF16 HW support (AVX512_BF16) AND an
+    // AVX512-VNNI impl in oneDNN (only avx512_core_vnni instance is registered for bf16 src).
+    const auto srcPrecision = srcDesc->getPrecision();
+    if (srcPrecision == ov::element::bf16) {
+        if (!ov::with_cpu_x86_bfloat16()) {
+            return false;
+        }
+        // On AMX-capable HW, AMX BF16 TMUL outperforms VNNI int8 dyn-quant for bf16 src.
+        // Disable the bf16 dyn-quant entry here so the AMX BF16 path stays in use.
+        if (ov::with_cpu_x86_avx512_core_amx()) {
+            return false;
+        }
+    } else if (srcPrecision == ov::element::f32) {
+        if (!ov::with_cpu_x86_avx2_vnni() && !ov::with_cpu_x86_avx512_core_vnni()) {
+            return false;
+        }
+    } else {
         return false;
     }
 
@@ -176,11 +191,15 @@ static bool useDynamicQuantizationImpl(size_t dqGroupSize,
     // For dynamic quantization, VNNI accumulation requires weight to be unsigned.
     // To support dynamic quantization with weights symmetrically quantized as i8/i4
     // w/o zero-point, we will transform weight to u8/u4 weight with zp 128/8.
-    if (!one_of(weightsDesc->getPrecision(), ov::element::u8, ov::element::u4) &&
-        !((one_of(weightsDesc->getPrecision(), ov::element::i8, ov::element::i4) && !zpPtr))) {
+    if (none_of(weightsDesc->getPrecision(), ov::element::u8, ov::element::u4, ov::element::u2) &&
+        !((any_of(weightsDesc->getPrecision(), ov::element::i8, ov::element::i4) && !zpPtr))) {
         return false;
     }
-    if (zpPtr && !one_of(zpPtr->getDesc().getPrecision(), ov::element::u8, ov::element::u4, ov::element::dynamic)) {
+    if (zpPtr && none_of(zpPtr->getDesc().getPrecision(),
+                         ov::element::u8,
+                         ov::element::u4,
+                         ov::element::u2,
+                         ov::element::dynamic)) {
         return false;
     }
 
@@ -190,9 +209,13 @@ static bool useDynamicQuantizationImpl(size_t dqGroupSize,
     }
 
     MemoryCPtr scalesPtr = memory.count(ARG_WEI | ARG_ATTR_SCALES) ? memory.at(ARG_WEI | ARG_ATTR_SCALES) : nullptr;
-    int ic = weightsDesc->getShape().getStaticDims()[1];
+    size_t ic = weightsDesc->getShape().getStaticDims()[1];
 
-    if (ic < static_cast<int>(simdWidth)) {
+    if (ic < simdWidth) {
+        return false;
+    }
+
+    if (ic < dqGroupSize) {
         return false;
     }
 
@@ -207,7 +230,7 @@ static bool useDynamicQuantizationImpl(size_t dqGroupSize,
 
     if (zpPtr && zpPtr->getShape().getRank() != 1) {
         auto zpDims = zpPtr->getShape().getStaticDims();
-        int groupsNum = zpDims[1];
+        auto groupsNum = zpDims[1];
         size_t groupSize = ic / groupsNum;
         if (groupsNum != 1 && groupSize % dqGroupSize) {
             return false;
@@ -229,7 +252,7 @@ static DnnlPrimitiveAttrs createPrimitiveAttrs(const FCAttrs& attrs,
     const auto& dims = reshapeDownToRank<2>(originalDims);
 
     auto isINT8 =
-        one_of(srcDesc->getPrecision(), ov::element::u8, ov::element::i8) && weiDesc->getPrecision() == ov::element::i8;
+        any_of(srcDesc->getPrecision(), ov::element::u8, ov::element::i8) && weiDesc->getPrecision() == ov::element::i8;
     auto outputDataType = DnnlExtensionUtils::ElementTypeToDataType(dstDesc->getPrecision());
 
     DnnlPostOpsComposer dnnlpoc(attrs.postOps,
@@ -241,7 +264,7 @@ static DnnlPrimitiveAttrs createPrimitiveAttrs(const FCAttrs& attrs,
                                 memory,
                                 outputDataType,
                                 {},
-                                false,
+                                PostOpsMode::Original,
                                 false);
 
     if (auto it = memory.find(ARG_WEI | ARG_ATTR_SCALES); it != memory.end()) {
@@ -260,7 +283,7 @@ static DnnlPrimitiveAttrs createPrimitiveAttrs(const FCAttrs& attrs,
 
     if (useDynamicQuantization) {
         auto wei_precision = weiDesc->getPrecision();
-        bool is_symmetric_weights = (wei_precision == ov::element::i8) || (wei_precision == ov::element::i4);
+        bool is_symmetric_weights = any_of(wei_precision, ov::element::i8, ov::element::i4);
         if (is_symmetric_weights) {
             // dynamic Quantization needs unsigned quantized weights, conversion from i8/i4 to u8/u4 by adding 128/8
             // introduces 128/8 as zero-points.
@@ -316,12 +339,12 @@ static dnnl::inner_product_forward::primitive_desc createDescriptorInternal(cons
                 wdt = memory::data_type::u4;
             }
         }
-    } else if (indt == dnnl::memory::data_type::u8 || indt == dnnl::memory::data_type::s8) {
+    } else if (any_of(indt, dnnl::memory::data_type::u8, dnnl::memory::data_type::s8)) {
         wdt = memory::data_type::s8;
     }
 
     const dnnl::memory::desc weightsDesc =
-        useSparseWeights ? dnnl::memory::desc().sparse_desc(normalizedWeightDesc.get_dims(), wdt)
+        useSparseWeights ? dnnl::memory::desc::packed_v0(normalizedWeightDesc.get_dims(), wdt)
                          : dnnl::memory::desc(normalizedWeightDesc.get_dims(), wdt, memory::format_tag::any);
 
     return {engine,
@@ -446,7 +469,7 @@ DnnlShapeAgnosticDataPtr DnnlFCPrimitive::createShapeAgnosticData(const FCAttrs&
     const auto weightsDesc = DnnlExtensionUtils::makeDescriptor(primDesc.weights_desc());
     auto originalWeightsDesc = MemoryDescUtils::convertToDnnlMemoryDesc(weiDesc);
 
-    originalWeightsDesc = makeTransposedWeightDescriptor(originalWeightsDesc, weightsDesc, attrs.weightsNonTransposed);
+    originalWeightsDesc = makeTransposedWeightDescriptor(originalWeightsDesc, weightsDesc, attrs);
 
     // ignore the result since we just need to put the packed weights into the cache
     (void)utils::prepareWeightsMemory(originalWeightsDesc,
@@ -463,7 +486,7 @@ DnnlShapeAgnosticDataPtr DnnlFCPrimitive::createShapeAgnosticData(const FCAttrs&
 static impl_desc_type implTypeFromPrimDesc(const dnnl::primitive_desc& primDesc) {
     const auto implType = parse_impl_name(primDesc.impl_info_str());
     if (implType == ov::intel_cpu::brgemm_avx512_amx &&
-        primDesc.weights_desc().get_format_kind() == memory::format_kind::sparsed) {
+        primDesc.weights_desc().get_format_kind() == memory::format_kind::sparse) {
         return ov::intel_cpu::brgemm_sparse_avx512_amx;
     }
 
@@ -472,8 +495,9 @@ static impl_desc_type implTypeFromPrimDesc(const dnnl::primitive_desc& primDesc)
 
 DnnlFCPrimitive::DnnlFCPrimitive(const Key& key,
                                  const dnnl::engine& engine,
+                                 const std::shared_ptr<ThreadPool>& threadPool,
                                  const std::vector<impl_desc_type>& implPriorities)
-    : m_stream(dnnl::stream(engine)),
+    : m_stream(make_stream(engine, threadPool)),
       m_primDesc(createPrimitiveDesc(
           key.src->getDnnlDesc(),
           key.wei->getDnnlDesc(),

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -67,16 +67,6 @@ std::vector<size_t> LoopManager::get_outer_expr_loops(const ExpressionPtr& expr,
     return {loop_ids.cbegin(), it};
 }
 
-std::vector<size_t> LoopManager::get_common_outer_loops(const ExpressionPtr& lhs, const ExpressionPtr& rhs) {
-    const auto& rhs_ids = rhs->get_loop_ids();
-    const auto& lhs_ids = lhs->get_loop_ids();
-    size_t idx = 0;
-    while (idx < std::min(rhs_ids.size(), lhs_ids.size()) && rhs_ids[idx] == lhs_ids[idx]) {
-        idx++;
-    }
-    return {rhs_ids.cbegin(), rhs_ids.cbegin() + idx};
-}
-
 std::vector<size_t> LoopManager::get_common_outer_loops(const std::vector<ExpressionPtr>& exprs) {
     OPENVINO_ASSERT(!exprs.empty(), "Failed to find common outer loops for set of expressions: there no expressions");
 
@@ -89,7 +79,7 @@ std::vector<size_t> LoopManager::get_common_outer_loops(const std::vector<Expres
     };
 
     const auto& first_loop_ids = exprs.front()->get_loop_ids();
-    size_t common_idx = 0;
+    size_t common_idx = first_loop_ids.size();
     for (size_t i = 1; i < exprs.size(); ++i) {
         common_idx = std::min(common_idx, get_first_diff_id_idx(first_loop_ids, exprs[i]->get_loop_ids()));
     }
@@ -156,13 +146,20 @@ void LoopManager::get_io_loop_ports(LinearIR::constExprIt loop_begin_pos,
                                     std::vector<ExpressionPort>& exits) {
     entries.clear();
     exits.clear();
+    // WA: GCC 15 -Warray-bounds false positive fires when shared_ptr elements are copied into an
+    // unordered_set's hash nodes here. Since the set only needs identity lookups,
+    // raw pointers can be used instead of shared ones.
+    std::unordered_set<const Expression*> loop_exprs;
+    for (auto expr_it = loop_begin_pos; expr_it != loop_end_pos; ++expr_it) {
+        loop_exprs.insert(expr_it->get());
+    }
     for (auto expr_it = loop_begin_pos; expr_it != loop_end_pos; ++expr_it) {
         const auto& expr = *expr_it;
         for (size_t i = 0; i < expr->get_input_count(); ++i) {
             const auto in_port = expr->get_input_port(i);
             const auto parent_expr = in_port.get_connected_ports().begin()->get_expr();
             if (!ov::is_type<ov::op::v0::Constant>(parent_expr->get_node()) &&
-                std::find(loop_begin_pos, expr_it, parent_expr) == expr_it) {
+                loop_exprs.count(parent_expr.get()) == 0) {
                 entries.push_back(in_port);
             }
         }
@@ -171,7 +168,7 @@ void LoopManager::get_io_loop_ports(LinearIR::constExprIt loop_begin_pos,
             const auto consumer_ports = out_port.get_connected_ports();
             for (const auto& consumer : consumer_ports) {
                 const auto& consumer_expr = consumer.get_expr();
-                if (std::find(expr_it, loop_end_pos, consumer_expr) == loop_end_pos) {
+                if (loop_exprs.count(consumer_expr.get()) == 0) {
                     exits.push_back(out_port);
                     break;
                 }
@@ -245,8 +242,36 @@ void LoopManager::mark_loop(LinearIR::constExprIt loop_begin_pos,
         OPENVINO_ASSERT(dim_idx < loop_tensor.size(), "Incorrect indexes of Loop for markup");
         const auto work_amount = *(loop_tensor.rbegin() + dim_idx);
         const auto increment = subtensor_value;
-        mark_loop(loop_begin_pos, loop_end_pos, work_amount, increment, dim_idx, loop_input_ports, loop_output_ports);
+        std::vector<LoopPort> entries, exits;
+        for (const auto& port : loop_input_ports) {
+            entries.push_back(LoopPort::create<LoopPort::Type::Incremented>(port, dim_idx));
+        }
+        for (const auto& port : loop_output_ports) {
+            exits.push_back(LoopPort::create<LoopPort::Type::Incremented>(port, dim_idx));
+        }
+        mark_loop(loop_begin_pos, loop_end_pos, work_amount, increment, entries, exits);
     }
+}
+
+size_t LoopManager::mark_loop(LinearIR::constExprIt loop_begin_pos,
+                              LinearIR::constExprIt loop_end_pos,
+                              size_t work_amount,
+                              size_t increment,
+                              const std::vector<LoopPort>& entries,
+                              const std::vector<LoopPort>& exits,
+                              bool set_default_handlers) {
+    const auto normalized_increment =
+        utils::is_dynamic_value(work_amount) || work_amount == 0 ? increment : std::min(increment, work_amount);
+    const auto loop_info = std::make_shared<UnifiedLoopInfo>(work_amount, normalized_increment, entries, exits, false);
+    if (set_default_handlers) {
+        loop_info->set_handlers(SpecificIterationHandlers(work_amount, normalized_increment, loop_info->get_dim_idx()));
+    }
+
+    const auto loop_id = this->add_loop_info(loop_info);
+    for (auto expr_it = loop_begin_pos; expr_it != loop_end_pos; ++expr_it) {
+        insert_loop_ids(*expr_it, {loop_id});
+    }
+    return loop_id;
 }
 
 size_t LoopManager::replace_with_new_loop(const LinearIR& linear_ir,
@@ -267,7 +292,7 @@ size_t LoopManager::replace_with_new_loop(const LinearIR& linear_ir,
                                 }),
                     "Failed to replace with new Loop: this Loop already exists!");
 
-    const auto old_loop_bounds = get_loop_bounds(linear_ir, old_id);
+    const auto [old_loop_begin, old_loop_end] = get_loop_bounds(linear_ir, old_id);
 
     const auto loop_id = this->add_loop_info(loop_info);
     const auto begin = explicit_loop_bounds ? std::next(loop_begin_pos) : loop_begin_pos;
@@ -278,7 +303,7 @@ size_t LoopManager::replace_with_new_loop(const LinearIR& linear_ir,
 
     // If new bounds are equal to old loop bounds, this means that old Loop is removed totally from LIR
     // In this case old loop info must be completely removed from loop manager
-    if (loop_begin_pos == old_loop_bounds.first && end == old_loop_bounds.second) {
+    if (loop_begin_pos == old_loop_begin && end == old_loop_end) {
         this->remove_loop_info(old_id);
     }
     return loop_id;
@@ -288,8 +313,8 @@ void LoopManager::fuse_loops(const LinearIR& linear_ir,
                              size_t loop_id_upper,
                              size_t loop_id_lower,
                              bool fuse_into_upper) {
-    const auto loop_bounds = get_loop_bounds(linear_ir, fuse_into_upper ? loop_id_lower : loop_id_upper);
-    fuse_loops(loop_bounds.first, loop_bounds.second, loop_id_upper, loop_id_lower, fuse_into_upper);
+    const auto [loop_begin, loop_end] = get_loop_bounds(linear_ir, fuse_into_upper ? loop_id_lower : loop_id_upper);
+    fuse_loops(loop_begin, loop_end, loop_id_upper, loop_id_lower, fuse_into_upper);
 }
 
 void LoopManager::fuse_loops(LinearIR::constExprIt loop_begin_target,
@@ -321,13 +346,18 @@ void LoopManager::fuse_loops(LinearIR::constExprIt loop_begin_target,
     auto new_exits = std::move(output_ports_upper);
     new_exits.insert(new_exits.end(), output_ports_lower.begin(), output_ports_lower.end());
 
-    m_map[to] = std::make_shared<UnifiedLoopInfo>(work_amount, increment, new_entries, new_exits, handlers);
+    m_map[to] = std::make_shared<UnifiedLoopInfo>(work_amount,
+                                                  increment,
+                                                  new_entries,
+                                                  new_exits,
+                                                  loop_info_lower->is_parallel(),
+                                                  handlers);
 
     // Need to handle InnerSplittedLoopInfo - update outer splitted loop info if it was fused
     for (const auto& p : m_map) {
         if (const auto inner_splitted_loop_info = ov::as_type_ptr<InnerSplittedUnifiedLoopInfo>(p.second)) {
             const auto outer = inner_splitted_loop_info->get_outer_splitted_loop_info();
-            if (utils::one_of(outer, loop_info_upper, loop_info_lower)) {
+            if (utils::any_of(outer, loop_info_upper, loop_info_lower)) {
                 inner_splitted_loop_info->set_outer_splitted_loop_info(m_map[to]);
             }
         }
@@ -448,7 +478,7 @@ void LoopManager::expression_replacement(LinearIR::constExprIt new_expr_begin,
                                          const std::vector<ExpressionPort>& entries,
                                          const std::vector<ExpressionPort>& exits) {
     for (auto it = new_expr_begin; it != new_expr_end; ++it) {
-        insert_loop_id(*it, loop_id, true);
+        insert_loop_ids(*it, {loop_id}, true);
     }
     remove_loop_id(decomposed_expr, loop_id);
 
@@ -494,20 +524,6 @@ bool LoopManager::reorder_identifiers(const std::map<size_t, size_t>& loop_id_ma
     return true;
 }
 
-void LoopManager::insert_loop_id(const ExpressionPtr& expr, size_t new_id, bool before, size_t target_id) {
-    OPENVINO_ASSERT(m_map.count(new_id) == 1,
-                    "Failed marking expression by Loop ID: the Loop with this ID hasn't registered");
-    OPENVINO_ASSERT(!is_loop_id_found(expr, new_id), "Expression cannot have several the same Loop IDs");
-    auto loop_ids = expr->get_loop_ids();
-    auto insert_it = before ? loop_ids.cbegin() : loop_ids.cend();
-    if (target_id != SIZE_MAX) {
-        insert_it = std::find(loop_ids.cbegin(), loop_ids.cend(), target_id);
-        OPENVINO_ASSERT(insert_it != loop_ids.cend(), "Failed add loop ID: target ID hasn't been found");
-    }
-    loop_ids.insert(insert_it, new_id);
-    expr->set_loop_ids(loop_ids);
-}
-
 void LoopManager::insert_loop_ids(const ExpressionPtr& expr,
                                   const std::vector<size_t>& new_ids,
                                   bool before,
@@ -519,6 +535,10 @@ void LoopManager::insert_loop_ids(const ExpressionPtr& expr,
                                 }),
                     "Failed marking expression by Loop ID: the Loop with this ID hasn't registered");
     auto loop_ids = expr->get_loop_ids();
+    std::unordered_set<size_t> unique_loop_ids(loop_ids.cbegin(), loop_ids.cend());
+    unique_loop_ids.insert(new_ids.cbegin(), new_ids.cend());
+    OPENVINO_ASSERT(unique_loop_ids.size() == loop_ids.size() + new_ids.size(), "Loop IDs must be unique");
+
     auto insert_it = before ? loop_ids.cbegin() : loop_ids.cend();
     if (target_id != SIZE_MAX) {
         insert_it = std::find(loop_ids.cbegin(), loop_ids.cend(), target_id);
@@ -526,8 +546,6 @@ void LoopManager::insert_loop_ids(const ExpressionPtr& expr,
     }
     loop_ids.insert(insert_it, new_ids.cbegin(), new_ids.cend());
     expr->set_loop_ids(loop_ids);
-    std::unordered_set<size_t> s(loop_ids.cbegin(), loop_ids.cend());
-    OPENVINO_ASSERT(s.size() == loop_ids.size(), "Loop IDs must be unique");
 }
 
 void LoopManager::replace_loop_id(const ExpressionPtr& expr, size_t prev_id, size_t new_id) {

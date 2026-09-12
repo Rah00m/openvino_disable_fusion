@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -52,6 +52,12 @@ OPENVINO_API std::shared_ptr<op::v0::Constant> constantfold_subgraph(const Outpu
 /// \param source  Node output used to get its tensor data as constant.
 /// \return Shared pointer to constant data or nullptr.
 OPENVINO_API std::shared_ptr<op::v0::Constant> get_constant_from_source(const Output<Node>& source);
+
+/// \brief Checks whether the source is a Constant with shape {0}.
+///
+/// \param source  Node output to check.
+/// \return        True if source is Constant and has shape {0}, otherwise false.
+OPENVINO_API bool is_empty_constant_tensor(const Output<Node>& source);
 
 /// \brief Make scalar tensor which stores maximum value of ov::element::Type.
 /// \param et  Element type to get its maximum.
@@ -146,7 +152,7 @@ OPENVINO_API bool is_axis_valid(const int64_t axis, const int64_t rank);
 OPENVINO_API void validate_axis(const int64_t axis, const Rank& rank, const Node& node);
 
 /// \brief Normalize axis against the rank.
-/// \note  No input validation.
+/// \note  No input validation. For rank-0 (scalar), any valid axis maps to 0.
 ///
 /// \param axis  Axis value to be normalized.
 /// \param rank  Rank value used for axis normalization.

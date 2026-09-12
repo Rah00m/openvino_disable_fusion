@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -28,6 +28,9 @@ protected:
                                                     const std::string& targetDevice,
                                                     const ov::pass::low_precision::LayerTransformation::Params& params =
                                                         ov::pass::low_precision::LayerTransformation::Params());
+    static std::string get_test_case_name_by_params(ov::element::Type precision,
+                                                    const ov::test::InputShape& inputShape,
+                                                    const std::string& targetDevice);
 
     // get runtime precision by operation friendly name
     std::string get_runtime_precision(const std::string& layerName);

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -70,8 +70,12 @@ ProgramBuilder::ProgramBuilder(std::shared_ptr<ov::Model> model, cldnn::engine& 
     , m_task_executor(task_executor)
     , m_compilation_context(compilation_context)
     , m_is_inner_program(is_inner_program) {
-    if (m_task_executor == nullptr)
+    // Constant GPU uploads use the engine before cldnn::program ctor syncs config to the engine.
+    m_engine.set_enable_large_allocations(m_config.get_enable_large_allocations());
+
+    if (m_task_executor == nullptr) {
         m_task_executor = cldnn::program::make_task_executor(m_config);
+    }
 
     if (m_compilation_context == nullptr) {
         m_compilation_context = cldnn::program::make_compilation_context(m_config);
@@ -107,6 +111,8 @@ ProgramBuilder::ProgramBuilder(std::shared_ptr<ov::Model> model, cldnn::engine& 
     CustomLayer::LoadFromFile(custom_layers_config, m_custom_layers, custom_layers_config.empty());
 
     auto ops = model->get_ordered_ops();
+
+    GPU_DEBUG_LOG << "Build model name: " << m_model->get_name() << " friendly name: " << m_model->get_friendly_name() << std::endl;
     m_program = build(ops, is_inner_program);
 }
 
@@ -181,8 +187,9 @@ bool ProgramBuilder::is_op_supported(const std::shared_ptr<ov::Node>& op) {
         // 2. We also check parameters of each operation, which means we have more
         //    reliable results of QueryNetwork call.
         prepare_build();
-        if (!data_types_are_supported(op.get()))
+        if (!data_types_are_supported(op.get())) {
             return false;
+        }
 
         CreateSingleLayerPrimitive(op);
         cleanup_build();
@@ -235,7 +242,7 @@ std::vector<cldnn::input_info> ProgramBuilder::GetInputInfo(const std::shared_pt
     // So the output index of the dependency is not processed
     std::vector<cldnn::input_info> inputInfo;
     for (size_t i = 0; i < op->get_input_size(); i++) {
-        auto prevOp = op->get_input_node_ptr(i);
+        auto* prevOp = op->get_input_node_ptr(i);
         std::string prevName = layer_type_name_ID(prevOp);
         // Note: Currently Split/Variadic Split are divided to multiple crops
         // LSTMCell contains its own body network, and each output has a unique pid
@@ -244,6 +251,12 @@ std::vector<cldnn::input_info> ProgramBuilder::GetInputInfo(const std::shared_pt
                                           || ov::is_type<ov::op::v1::Split>(prevOp)
                                           || ov::is_type<ov::op::v1::VariadicSplit>(prevOp)
                                           || ov::is_type<ov::op::v4::LSTMCell>(prevOp);
+
+        // Custom op need to maintain output port index for multiple outputs.
+        if (m_custom_layers.find(prevOp->get_type_name()) != m_custom_layers.end()) {
+            is_legacy_multiple_outputs = false;
+        }
+
         if (prevOp->get_output_size() > 1 && is_legacy_multiple_outputs) {
             prevName += ".out" + std::to_string(op->get_input_source_output(i).get_index());
         }
@@ -280,9 +293,10 @@ void ProgramBuilder::add_primitive(const ov::Node& op, std::shared_ptr<cldnn::pr
 
     prim->origin_op_name = op.get_friendly_name();
     prim->origin_op_type_name = op.get_type_name();
+    prim->is_shape_of_subgraph_root = op.get_rt_info().count("gpu_shape_of_subgraph_root") != 0;
 
-    if (this->m_config.get_cache_mode() == ov::CacheMode::OPTIMIZE_SIZE) {
-        if (auto data_prim = dynamic_cast<cldnn::data*>(prim.get())) {
+    if (this->m_config.get_enable_weightless()) {
+        if (auto* data_prim = dynamic_cast<cldnn::data*>(prim.get())) {
             auto rt_info = op.get_rt_info();
 
             auto weightless_cache_attr = rt_info.find(ov::WeightlessCacheAttribute::get_type_info_static());
@@ -308,8 +322,9 @@ void ProgramBuilder::add_primitive(const ov::Node& op, std::shared_ptr<cldnn::pr
     if (id != prim_id) {
         primitive_ids[prim_id] = prim_id;
 
-        if (!multi_output_case)
+        if (!multi_output_case) {
             prim->origin_op_type_name = prim->type_string();
+        }
     }
 
     if (this->m_config.get_enable_profiling() && should_profile) {

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -58,7 +58,7 @@ void generate_if_clusters(const shared_ptr<Model>& ov_model,
 
             // combine all Switch nodes for which conditional flow is resolved
             // by the current Merge node
-            SetOfSwitchNodes switch_nodes;
+            unordered_set<shared_ptr<Switch>> switch_nodes;
             for (const auto& eliminated_marker : eliminated_markers) {
                 auto curr_switch_nodes = merge_node->get_switch_nodes_set_by_cond_index(eliminated_marker);
                 switch_nodes.insert(curr_switch_nodes.begin(), curr_switch_nodes.end());
@@ -117,7 +117,7 @@ void insert_result_before_merge(const shared_ptr<Merge>& merge_node,
                                 uint32_t& branch_index,
                                 shared_ptr<v0::Result>& result_output,
                                 shared_ptr<v0::Result>& result_value_index) {
-    // check that handled Marge node contains conditional flow marker
+    // check that handled Merge node contains conditional flow marker
     auto merge_node_name = merge_node->get_friendly_name();
     FRONT_END_GENERAL_CHECK(cf_marker_exists(merge_node),
                             "[TensorFlow Frontend] internal error: Merge node " + merge_node_name +
@@ -133,7 +133,7 @@ void insert_result_before_merge(const shared_ptr<Merge>& merge_node,
     auto eliminated_marker = merge_cf_marker.merge_eliminated_markers.begin()->first;
 
     // check that producer contains the same conditional flow marker
-    // and retrive branch index for it
+    // and retrieve branch index for it
     const auto& merge_input = merge_node->input(input_ind);
     const auto& input_value = merge_node->input_value(input_ind);
     const shared_ptr<const Node>& merge_producer = merge_node->get_input_node_shared_ptr(input_ind);

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -26,6 +26,7 @@ public:
     static std::string getTestCaseName(const testing::TestParamInfo<logSoftmaxLayerTestParams>& obj);
 
 protected:
+    void generate_inputs(const std::vector<ov::Shape>& target_shapes) override;
     void SetUp() override;
 };
 }  // namespace test

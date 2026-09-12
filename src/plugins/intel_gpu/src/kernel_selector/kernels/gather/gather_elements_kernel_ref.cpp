@@ -1,11 +1,13 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #include "gather_elements_kernel_ref.h"
-#include "kernel_selector_utils.h"
+
 #include <string>
 #include <vector>
+
+#include "kernel_selector_utils.h"
 
 namespace kernel_selector {
 static size_t GetGatherElementsChannelIndex(const gather_elements_params& params) {
@@ -14,20 +16,20 @@ static size_t GetGatherElementsChannelIndex(const gather_elements_params& params
     size_t inputSize = params.inputs[0].GetDims().size();
 
     switch (params.axis) {
-        case GatherAxis::X:
-            return inputSize - 1;
-        case GatherAxis::Y:
-            return inputSize - 2;
-        case GatherAxis::Z:
-            return inputSize - 3;
-        case GatherAxis::W:
-            return 2;
-        case GatherAxis::FEATURE:
-            return 1;
-        case GatherAxis::BATCH:
-            return 0;
-        default:
-            break;
+    case GatherAxis::X:
+        return inputSize - 1;
+    case GatherAxis::Y:
+        return inputSize - 2;
+    case GatherAxis::Z:
+        return inputSize - 3;
+    case GatherAxis::W:
+        return 2;
+    case GatherAxis::FEATURE:
+        return 1;
+    case GatherAxis::BATCH:
+        return 0;
+    default:
+        break;
     }
 
     return DataTensor::Channelndex(params.outputs[0].GetLayout(), name);
@@ -88,11 +90,11 @@ ParamsKey GatherElementsKernelRef::GetSupportedKey() const {
 static inline std::vector<std::string> GetDefaultOrder(size_t size) {
     std::vector<std::string> default_order;
     if (size <= 4) {
-        default_order = { "b", "f", "y", "x" };
+        default_order = {"b", "f", "y", "x"};
     } else if (size == 5) {
-        default_order = { "b", "f", "z", "y", "x" };
+        default_order = {"b", "f", "z", "y", "x"};
     } else if (size == 6) {
-        default_order = { "b", "f", "w", "z", "y", "x" };
+        default_order = {"b", "f", "w", "z", "y", "x"};
     }
 
     return default_order;
@@ -100,15 +102,16 @@ static inline std::vector<std::string> GetDefaultOrder(size_t size) {
 
 static inline std::string GetOrderString(const std::vector<std::string>& order) {
     std::string order_str = order[0];
-    for (size_t i = 1; i < order.size(); i++)
+    for (size_t i = 1; i < order.size(); i++) {
         order_str += ", " + order[i];
+    }
 
     return order_str;
 }
 
 static std::string GetDataIndexOrder(const gather_elements_params& params, size_t axis) {
     auto idx_order = GetDefaultOrder(params.outputs[0].GetDims().size());
-    auto index_macro = "indices_val";
+    const auto* index_macro = "indices_val";
 
     idx_order[axis] = index_macro;
 
@@ -126,9 +129,7 @@ CommonDispatchData GatherElementsKernelRef::SetDefault(const gather_elements_par
     switch (params.inputs[1].GetLayout()) {
     case DataLayout::bfyx:
         dispatchData.gws = {output.X().v, output.Y().v, output.Feature().v * output.Batch().v};
-        dims_by_gws = {{Tensor::DataChannelName::X},
-                       {Tensor::DataChannelName::Y},
-                       {Tensor::DataChannelName::FEATURE, Tensor::DataChannelName::BATCH}};
+        dims_by_gws = {{Tensor::DataChannelName::X}, {Tensor::DataChannelName::Y}, {Tensor::DataChannelName::FEATURE, Tensor::DataChannelName::BATCH}};
 
         break;
 
@@ -167,8 +168,8 @@ JitConstants GatherElementsKernelRef::GetJitConstants(const gather_elements_para
 
     if (!params.fused_ops.empty()) {
         std::vector<std::string> idx_order = GetDefaultOrder(params.inputs[0].GetDims().size());
-        FusedOpsConfiguration conf = { "", idx_order, "val", params.inputs[0].GetDType() };
-        jit.Merge(MakeFusedOpsJitConstants(params, { conf }));
+        FusedOpsConfiguration conf = {"", idx_order, "val", params.inputs[0].GetDType()};
+        jit.Merge(MakeFusedOpsJitConstants(params, {conf}));
     }
 
     return jit;
@@ -176,7 +177,7 @@ JitConstants GatherElementsKernelRef::GetJitConstants(const gather_elements_para
 
 bool GatherElementsKernelRef::Validate(const Params& p) const {
     if (p.GetType() != KernelType::GATHER_ELEMENTS) {
-        return false;
+        DO_NOT_USE_THIS_KERNEL(p.layerID);
     }
 
     const gather_elements_params& params = static_cast<const gather_elements_params&>(p);
@@ -184,12 +185,13 @@ bool GatherElementsKernelRef::Validate(const Params& p) const {
     size_t indices_rank = params.inputs[1].GetDims().size();
 
     if (input_rank != indices_rank) {
-        return false;
+        DO_NOT_USE_THIS_KERNEL(p.layerID);
     }
 
-    for (auto& fused_op : params.fused_ops) {
-        if (!IsFusedPrimitiveSupported(fused_op))
-            return false;
+    for (const auto& fused_op : params.fused_ops) {
+        if (!IsFusedPrimitiveSupported(fused_op)) {
+            DO_NOT_USE_THIS_KERNEL(p.layerID);
+        }
     }
 
     return true;
@@ -222,9 +224,20 @@ KernelsData GatherElementsKernelRef::GetKernelsData(const Params& params) const 
     GetUpdateDispatchDataFunc(kd);
 
     auto& kernel = kd.kernels[0];
-    FillCLKernelData(kernel, dispatchData, params.engineInfo, kernelName, jit, entry_point,
-                     "", false, false, 2, GetFusedPrimitiveInputsCount(params), 1, newParams.is_shape_agnostic);
-    return { kd };
+    FillCLKernelData(kernel,
+                     dispatchData,
+                     params.engineInfo,
+                     kernelName,
+                     jit,
+                     entry_point,
+                     "",
+                     false,
+                     false,
+                     2,
+                     GetFusedPrimitiveInputsCount(params),
+                     1,
+                     newParams.is_shape_agnostic);
+    return {kd};
 }
 
 KernelsPriority GatherElementsKernelRef::GetKernelsPriority(const Params& /*params*/) const {

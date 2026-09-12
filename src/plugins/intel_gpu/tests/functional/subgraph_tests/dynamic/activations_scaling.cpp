@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -41,11 +41,8 @@ using ActivationsScalingParams = std::tuple<ShapeParams,             // input sh
 class ActivationsScaling : public testing::WithParamInterface<ActivationsScalingParams>,
                              virtual public ov::test::SubgraphBaseTest {
 public:
-    static std::string getTestCaseName(testing::TestParamInfo<ActivationsScalingParams> obj) {
-        ShapeParams shape_params;
-        ov::element::Type input_precision;
-
-        std::tie(shape_params, input_precision) = obj.param;
+    static std::string getTestCaseName(const testing::TestParamInfo<ActivationsScalingParams>& obj) {
+        const auto& [shape_params, input_precision] = obj.param;
 
         std::ostringstream result;
         result << "IS=(";
@@ -161,10 +158,7 @@ protected:
     void SetUp() override {
         targetDevice = ov::test::utils::DEVICE_GPU;
 
-        ShapeParams shape_params;
-        ov::element::Type input_precision;
-
-        std::tie(shape_params, input_precision) = GetParam();
+        const auto& [shape_params, input_precision] = GetParam();
 
         init_input_shapes(shape_params.input_shape);
 
@@ -198,11 +192,7 @@ TEST_P(ActivationsScaling, Inference) {
 }
 
 TEST_P(ActivationsScaling, Inference_cached) {
-    std::stringstream ss;
-    ss << "gpu_model_cache_" << std::hash<std::string>{}(
-          std::string(::testing::UnitTest::GetInstance()->current_test_info()->test_suite_name()) +
-          std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()));
-    std::string cacheDirName = ss.str();
+    std::string cacheDirName = ov::test::utils::generateTestFilePrefix() + "_gpu_model_cache";
     {
         ov::test::utils::removeFilesWithExt(cacheDirName, "blob");
         ov::test::utils::removeFilesWithExt(cacheDirName, "cl_cache");

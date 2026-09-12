@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2018-2025 Intel Corporation
+﻿// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -15,8 +15,8 @@ namespace kernel_selector {
 struct resample_params : public base_params {
     resample_params() : base_params(KernelType::RESAMPLE) {}
 
-    std::vector<int32_t> pads_begin = {};
-    std::vector<int32_t> pads_end = {};
+    std::vector<int32_t> pads_begin;
+    std::vector<int32_t> pads_end;
     ResampleType resampleType = ResampleType::NEAREST_NEIGHBOR;
     CoordinateTransformationMode coordTransMode = CoordinateTransformationMode::HALF_PIXEL;
     NearestMode nearestMode = NearestMode::ROUND_PREFER_FLOOR;
@@ -29,7 +29,7 @@ struct resample_params : public base_params {
 
     ParamsKey GetParamsKey() const override {
         auto k = base_params::GetParamsKey();
-        k.EnableReampleType(resampleType);
+        k.EnableResampleType(resampleType);
         return k;
     }
 };
@@ -42,7 +42,7 @@ public:
     using DispatchData = CommonDispatchData;
     using KernelBaseOpenCL::KernelBaseOpenCL;
 
-    virtual ~ResampleKernelBase() {}
+    ~ResampleKernelBase() override = default;
 
 protected:
     bool Validate(const Params& p) const override;

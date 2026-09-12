@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -131,7 +131,6 @@ public:
                                                                           {ov::PrecisionPreservedAttribute(true),
                                                                            ov::IntervalsAlignmentAttribute(interval, 256),
                                                                            ov::QuantizationAlignmentAttribute(false)},
-                                                                          ov::element::dynamic,
                                                                           testValues.axis,
                                                                           oneInputWithSplit);
 
@@ -175,7 +174,6 @@ public:
                                                              {ov::PrecisionPreservedAttribute(true),
                                                               ov::IntervalsAlignmentAttribute(interval, 256),
                                                               ov::QuantizationAlignmentAttribute(false)},
-                                                             testValues.result.precisionAfterOperation,
                                                              testValues.axis,
                                                              oneInputWithSplit);
     }
@@ -316,6 +314,30 @@ const std::vector<MoveFakeQuantizeTransformationTestValues> testValues = {
          {{256ul, {}, {0.f}, {2.55f}, {0.f}, {2.55f}}},
          {ov::element::u8},
          {{element::f32}, {0.01f}, {0.01f}},
+         "",
+         {},
+         {},
+         {},
+     }},
+    // F16 Q/DQ with subtract
+    {LayerTransformation::createParamsU8I8(),
+     false,
+     1,
+     {
+         2,
+         {},
+         {},
+         {},
+         "",
+         {256ul, {}, {0.f}, {2.55f}, {0.f}, {2.55f}},
+         {ov::element::u8},
+         {{element::f16}, {0.01f}, {0.01f}},
+     },
+     {
+         2,
+         {{256ul, {}, {0.f}, {2.55f}, {0.f}, {2.55f}}},
+         {ov::element::u8},
+         {{element::f16}, {0.01f}, {0.01f}},
          "",
          {},
          {},

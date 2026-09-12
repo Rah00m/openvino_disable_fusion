@@ -1,4 +1,4 @@
-# Copyright (C) 2018-2025 Intel Corporation
+# Copyright (C) 2018-2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
 # flake8: noqa
@@ -9,7 +9,10 @@ from openvino import Type, Shape
 
 
 def pack_data(array: np.ndarray, type: Type) -> np.ndarray:
-    """Represent array values as u1,u4 or i4 openvino element type and pack them into uint8 numpy array.
+    """Represent array values as u1, u2, u3, u4, u6 or i4 openvino element type and pack them into uint8 numpy array.
+
+    For u1, u2, u4, i4: Standard bit packing where 8 % bitwidth == 0
+    For u3, u6: Linear LSB-first bit-stream packing, values may straddle a byte boundary
 
     If the number of elements in array is odd we pad them with zero value to be able to fit the bit
     sequence into the uint8 array.
@@ -20,10 +23,16 @@ def pack_data(array: np.ndarray, type: Type) -> np.ndarray:
 
     :param array: numpy array with values to pack.
     :type array: numpy array
-    :param type: Type to interpret the array values. Type must be u1, u4, i4, nf4 or f4e2m1.
+    :param type: Type to interpret the array values. Type must be u1, u2, u3, u4, u6, i4, nf4 or f4e2m1.
     :type type: openvino.Type
     """
-    assert type in [Type.u1, Type.u4, Type.i4, Type.nf4, Type.f4e2m1], "Packing algorithm for the" "data types stored in 1, 2 or 4 bits"
+    # Handle u3 and u6 with linear LSB-first bit-stream packing
+    if type == Type.u3:
+        return _pack_linear(array, 3)
+    elif type == Type.u6:
+        return _pack_linear(array, 6)
+    
+    assert type in [Type.u1, Type.u2, Type.u4, Type.i4, Type.nf4, Type.f4e2m1], "Packing algorithm for the" "data types stored in 1, 2 or 4 bits"
 
     minimum_regular_dtype = np.int8 if type == Type.i4 else np.uint8
     casted_to_regular_type = array.astype(dtype=minimum_regular_dtype, casting="unsafe")
@@ -51,18 +60,27 @@ def pack_data(array: np.ndarray, type: Type) -> np.ndarray:
 def unpack_data(array: np.ndarray, type: Type, shape: Union[list, Shape]) -> np.ndarray:
     """Extract openvino element type values from array into new uint8/int8 array given shape.
 
+    For u1, u2, u4, i4: Standard bit unpacking where 8 % bitwidth == 0
+    For u3, u6: Linear LSB-first bit-stream unpacking, values may straddle a byte boundary
+
     Example: uint8 value [120] can be represented as two u4 values and be unpacked into [7, 8]
              because [120] bit representation is [01111000] will be viewed as [0111, 1000],
              which is bit representation of [7, 8].
 
     :param array: numpy array to unpack.
     :type array: numpy array
-    :param type: Type to extract from array values. Type must be u1, u4, i4, nf4 or f4e2m1.
+    :param type: Type to extract from array values. Type must be u1, u2, u3, u4, u6, i4, nf4 or f4e2m1.
     :type type: openvino.Type
     :param shape: the new shape for the unpacked array.
     :type shape: Union[list, openvino.Shape]
     """
-    assert type in [Type.u1, Type.u4, Type.i4, Type.nf4, Type.f4e2m1], "Unpacking algorithm for the" "data types stored in 1, 2 or 4 bits"
+    # Handle u3 and u6 with linear LSB-first bit-stream unpacking
+    if type == Type.u3:
+        return _unpack_linear(array, 3, shape)
+    elif type == Type.u6:
+        return _unpack_linear(array, 6, shape)
+    
+    assert type in [Type.u1, Type.u2, Type.u4, Type.i4, Type.nf4, Type.f4e2m1], "Unpacking algorithm for the" "data types stored in 1, 2 or 4 bits"
     unpacked = np.unpackbits(array.view(np.uint8))
     shape = list(shape)
     if type.bitwidth == 1:
@@ -85,3 +103,25 @@ def unpack_data(array: np.ndarray, type: Type, shape: Union[list, Shape]) -> np.
             return np.resize(packed, shape).astype(dtype=np.int8)
         else:
             return np.resize(packed, shape)
+
+
+def _pack_linear(array: np.ndarray, bits: int) -> np.ndarray:
+    """Pack values into a linear, LSB-first bit-stream (used for u3/u6): value i occupies bits
+    [i * bits, i * bits + bits), possibly straddling a byte boundary.
+    """
+    array = array.astype(np.uint8, casting="unsafe").flatten()
+    bit_order_little = (array[:, None] & (1 << np.arange(bits)) > 0).astype(np.uint8)
+    return np.packbits(bit_order_little.flatten(), bitorder="little")
+
+
+def _unpack_linear(array: np.ndarray, bits: int, shape: Union[list, Shape]) -> np.ndarray:
+    """Unpack values from a linear, LSB-first bit-stream (used for u3/u6), inverse of _pack_linear."""
+    array = array.view(np.uint8)
+    shape = list(shape)
+    num_values = int(np.prod(shape))
+
+    bits_unpacked = np.unpackbits(array, bitorder="little")[: num_values * bits]
+    values = bits_unpacked.reshape(-1, bits)
+    weights = (1 << np.arange(bits)).astype(np.uint8)
+    result = (values * weights).sum(axis=1).astype(np.uint8)
+    return np.resize(result, shape)

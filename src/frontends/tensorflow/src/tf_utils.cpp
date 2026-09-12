@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -424,7 +424,7 @@ bool propagate_conditional_flow(const OutputVector& ov_inputs,
         } else if (const auto& switch_node = as_type_ptr<Switch>(node)) {
             // update conditional flow marker with new marker for the current Switch node
             auto switch_marker = switch_node->get_switch_marker();
-            resulted_cf_marker.new_markers[switch_marker] = {switch_node};
+            resulted_cf_marker.new_markers[switch_marker].insert(switch_node);
             resulted_cf_marker.existing_markers_with_branches = combined_markers_with_branches;
             resulted_cf_marker.existing_markers_with_switches = combined_markers_with_switches;
         } else {
@@ -451,7 +451,7 @@ bool propagate_conditional_flow(const OutputVector& ov_inputs,
     }
 
     // compute output control dependencies
-    // logically, the next nodes will dependend on outputs and input control dependencies
+    // logically, the next nodes will depend on outputs and input control dependencies
     output_control_deps.clear();
     if (to_propagate) {
         output_control_deps = input_control_deps;

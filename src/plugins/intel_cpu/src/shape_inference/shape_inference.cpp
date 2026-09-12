@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 #include "shape_inference.hpp"
@@ -67,6 +67,7 @@
 #include "gru_cell_shape_inference.hpp"
 #include "gru_sequence_shape_inference.hpp"
 #include "i420_shape_inference.hpp"
+#include "identity_shape_inference.hpp"
 #include "interpolate_shape_inference.hpp"
 #include "inverse_shape_inference.hpp"
 #include "irdft_shape_inference.hpp"
@@ -133,6 +134,7 @@
 #include "openvino/op/hard_sigmoid.hpp"
 #include "openvino/op/i420_to_bgr.hpp"
 #include "openvino/op/i420_to_rgb.hpp"
+#include "openvino/op/identity.hpp"
 #include "openvino/op/idft.hpp"
 #include "openvino/op/interpolate.hpp"
 #include "openvino/op/inverse.hpp"
@@ -153,6 +155,7 @@
 #include "openvino/op/nv12_to_rgb.hpp"
 #include "openvino/op/one_hot.hpp"
 #include "openvino/op/pad.hpp"
+#include "openvino/op/paged_selective_ssm.hpp"
 #include "openvino/op/parameter.hpp"
 #include "openvino/op/prelu.hpp"
 #include "openvino/op/prior_box.hpp"
@@ -190,6 +193,7 @@
 #include "openvino/op/search_sorted.hpp"
 #include "openvino/op/segment_max.hpp"
 #include "openvino/op/select.hpp"
+#include "openvino/op/selective_ssm.hpp"
 #include "openvino/op/selu.hpp"
 #include "openvino/op/shape_of.hpp"
 #include "openvino/op/shuffle_channels.hpp"
@@ -220,6 +224,7 @@
 #include "ov_ops/augru_sequence.hpp"
 #include "ov_ops/glu.hpp"
 #include "pad_shape_inference.hpp"
+#include "paged_selective_ssm_shape_inference.hpp"
 #include "prior_box_clustered_shape_inference.hpp"
 #include "prior_box_shape_inference.hpp"
 #include "proposal_shape_inference.hpp"
@@ -245,6 +250,7 @@
 #include "search_sorted_shape_inference.hpp"
 #include "segment_max_shape_inference.hpp"
 #include "select_shape_inference.hpp"
+#include "selective_ssm_shape_inference.hpp"
 #include "shape_inference/shape_inference_cpu.hpp"
 #include "shape_inference/shape_inference_status.hpp"
 #include "shape_nodes.hpp"
@@ -281,7 +287,7 @@ class ShapeInferBase : public IStaticShapeInfer {
 public:
     using iface_type = IStaticShapeInfer;
 
-    ShapeInferBase(std::shared_ptr<ov::Node> node) : m_node{std::move(node)} {
+    explicit ShapeInferBase(std::shared_ptr<ov::Node> node) : m_node{std::move(node)} {
         static_assert(std::is_same_v<int64_t, Dimension::value_type>, "Rank type not match to input_ranks type.");
         for (size_t i = 0; i < m_node->get_input_size(); ++i) {
             const auto& shape = m_node->get_input_partial_shape(i);
@@ -314,11 +320,11 @@ public:
     }
 
     const ov::CoordinateDiff& get_pads_begin() override {
-        OPENVINO_ASSERT(false, "ShapeInferBase do not support get_pads_begin() by default.");
+        OPENVINO_THROW("ShapeInferBase do not support get_pads_begin() by default.");
     }
 
     const ov::CoordinateDiff& get_pads_end() override {
-        OPENVINO_ASSERT(false, "ShapeInferBase do not support get_pads_end() by default.");
+        OPENVINO_THROW("ShapeInferBase do not support get_pads_end() by default.");
     }
 
     const std::vector<int64_t>& get_input_ranks() override {
@@ -451,7 +457,7 @@ public:
 /** @brief Base shape inference object implementing the IStaticShapeInfer with padding support. */
 class ShapeInferPaddingBase : public ShapeInferBase {
 public:
-    ShapeInferPaddingBase(std::shared_ptr<ov::Node> node) : ShapeInferBase(std::move(node)) {}
+    explicit ShapeInferPaddingBase(std::shared_ptr<ov::Node> node) : ShapeInferBase(std::move(node)) {}
 
     const ov::CoordinateDiff& get_pads_begin() override {
         return m_pads_begin;
@@ -561,8 +567,7 @@ std::shared_ptr<typename TShapeInfer::iface_type> make_shape_infer(std::shared_p
 using ShapeInferKey = ov::NodeTypeInfo;
 
 // Helper macros to make map entries
-#define _OV_OP_SHAPE_INFER_VA_REG(OP, ...) \
-    { OP::get_type_info_static(), make_shape_infer<__VA_ARGS__> }
+#define _OV_OP_SHAPE_INFER_VA_REG(OP, ...)                  {OP::get_type_info_static(), make_shape_infer<__VA_ARGS__>}
 #define OV_OP_SHAPE_INFER_MASK_REG(OP, SHAPE_INFER, MASK)   _OV_OP_SHAPE_INFER_VA_REG(OP, SHAPE_INFER, OP, MASK)
 #define OV_OP_SHAPE_INFER_NON_TEMPLATE_REG(OP, SHAPE_INFER) _OV_OP_SHAPE_INFER_VA_REG(OP, SHAPE_INFER)
 
@@ -577,9 +582,12 @@ using IStaticShapeInferFactory =
 template <>
 const IStaticShapeInferFactory::TRegistry IStaticShapeInferFactory::registry{
     // opset16
+    OV_OP_SHAPE_INFER_MASK_REG(op::v16::OneHot, ShapeInferTA, util::bit::mask(1)),
+    OV_OP_SHAPE_INFER_MASK_REG(op::v16::AvgPool, ShapeInferPaddingTA, util::bit::mask()),
     OV_OP_SHAPE_INFER_MASK_REG(op::v16::ISTFT, ShapeInferTA, util::bit::mask(2, 3, 4)),
     OV_OP_SHAPE_INFER_MASK_REG(op::v16::SegmentMax, ShapeInferTA, util::bit::mask(1, 2)),
     OV_OP_SHAPE_INFER_MASK_REG(op::v16::SparseFillEmptyRows, ShapeInferTA, util::bit::mask(1, 2)),
+    OV_OP_SHAPE_INFER_MASK_REG(op::v16::Identity, ShapeInferTA, util::bit::mask()),
     // opset15
     OV_OP_SHAPE_INFER_MASK_REG(op::v15::Squeeze, ShapeInferTA, util::bit::mask(1)),
     OV_OP_SHAPE_INFER_MASK_REG(op::v15::SearchSorted, ShapeInferTA, util::bit::mask()),
@@ -750,6 +758,8 @@ const IStaticShapeInferFactory::TRegistry IStaticShapeInferFactory::registry{
     OV_OP_SHAPE_INFER_MASK_REG(ov::op::internal::AUGRUSequence, ShapeInferTA, util::bit::mask()),
     OV_OP_SHAPE_INFER_MASK_REG(ov::op::internal::RMSNorm, ShapeInferTA, util::bit::mask(1)),
     OV_OP_SHAPE_INFER_MASK_REG(ov::op::internal::GLU, ShapeInferTA, util::bit::mask()),
+    OV_OP_SHAPE_INFER_MASK_REG(ov::op::internal::SelectiveSSM, ShapeInferTA, util::bit::mask()),
+    OV_OP_SHAPE_INFER_MASK_REG(ov::op::internal::PagedSelectiveSSM, ShapeInferTA, util::bit::mask()),
 };
 // clang-format on
 

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -53,14 +53,16 @@ DeviceFeaturesKey MVNKernel_bs_fs_yx_bsv32::get_required_device_features_key(con
 }
 
 bool MVNKernel_bs_fs_yx_bsv32::Validate(const Params& p) const {
-    if (!Parent::Validate(p))
-        return false;
+    if (!Parent::Validate(p)) {
+        DO_NOT_USE_THIS_KERNEL(p.layerID);
+    }
 
     auto params = static_cast<const mvn_params&>(p);
 
     // TODO Add support for input padding via iterating over y (parallel or in kernel).
-    if (params.inputs[0].X().pad.Total() != 0 || params.inputs[0].Y().pad.Total() != 0)
-        return false;
+    if (params.inputs[0].X().pad.Total() != 0 || params.inputs[0].Y().pad.Total() != 0) {
+        DO_NOT_USE_THIS_KERNEL(p.layerID);
+    }
 
     return true;
 }
@@ -191,8 +193,9 @@ MVNKernel_bs_fs_yx_bsv32::MultiDispatchData MVNKernel_bs_fs_yx_bsv32::SetDefault
 
 KernelsData MVNKernel_bs_fs_yx_bsv32::GetMultiStageKernelsData(const mvn_params& params,
                                                                         bool has_enough_data) const {
-    if (!Validate(params))
+    if (!Validate(params)) {
         return {};
+    }
 
     constexpr size_t intermediate_bytes = 4;
     auto dispatchData = SetDefaultForMulti(params, has_enough_data);

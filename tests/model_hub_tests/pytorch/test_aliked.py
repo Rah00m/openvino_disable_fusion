@@ -1,8 +1,9 @@
-# Copyright (C) 2018-2025 Intel Corporation
+# Copyright (C) 2018-2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
 import math
 import os
+import platform
 import subprocess
 import sys
 import tempfile
@@ -14,11 +15,15 @@ import torch
 from openvino import convert_model, Model, PartialShape, Type
 from openvino.frontend import ConversionExtension
 
-from torch_utils import TestTorchConvertModel
+from torch_utils import TestTorchConvertModel, skip_npu_precommit
 
 # To make tests reproducible we seed the random generator
 torch.manual_seed(0)
 
+# Precommit models out of the NPU scope, per platform ("*" = all platforms).
+NPU_PRECOMMIT_SKIP = {
+    "aliked-n16rot": "*",
+}
 
 def custom_op_loop(context):
     map = context.get_input(0)
@@ -74,6 +79,11 @@ def read_image(path, idx):
 
 class TestAlikedConvertModel(TestTorchConvertModel):
     def setup_class(self):
+        # On NPU aliked is out of scope (see NPU_PRECOMMIT_SKIP), so skip the whole class
+        # before the native `sh build.sh` step in setup (which also fails on Windows).
+        if "NPU" in os.environ.get("TEST_DEVICE", ""):
+            pytest.skip("aliked is out of the NPU scope")
+
         self.repo_dir = tempfile.TemporaryDirectory()
         os.system(
             f"git clone https://github.com/mvafin/ALIKED.git {self.repo_dir.name}")
@@ -120,10 +130,17 @@ class TestAlikedConvertModel(TestTorchConvertModel):
         # remove all downloaded files from cache
         self.repo_dir.cleanup()
 
+    def get_supported_precommit_models():
+        models = []
+        if platform.machine() not in ['arm', 'armv7l', 'aarch64', 'arm64', 'ARM64']:
+            models.extend(['aliked-n16rot'])
+        return models
+
     @pytest.mark.nightly
     @pytest.mark.precommit
-    @pytest.mark.parametrize("name", ['aliked-n16rot'])
+    @pytest.mark.parametrize("name", get_supported_precommit_models())
     def test_convert_model_all_models_default(self, name, ie_device):
+        skip_npu_precommit(name, ie_device, NPU_PRECOMMIT_SKIP)
         self.run(name, None, ie_device)
 
     @pytest.mark.nightly

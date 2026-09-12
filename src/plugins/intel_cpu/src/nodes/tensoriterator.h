@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -35,7 +35,7 @@ struct PortMap {
     int stride;    /**< Stride to iterate throught */
     int start;     /**< Start index of iteration range */
     int end;       /**< Last index of iteration range  */
-    int part_size; /**< Part size which will be transfered to body subnetwork */
+    int part_size; /**< Part size which will be transferred to body subnetwork */
 };
 
 /**
@@ -74,7 +74,10 @@ protected:
  */
 class DynamicBuffer {
 public:
-    DynamicBuffer(MemoryPtr from_, std::vector<MemoryPtr> to_, const PortMap& map_rule_);
+    DynamicBuffer(MemoryPtr from_,
+                  std::vector<MemoryPtr> to_,
+                  const PortMap& map_rule_,
+                  const std::shared_ptr<CpuParallel>& parallel);
 
     void execute(const dnnl::engine& eng, int iter);
     void transfer(const Node* node);
@@ -90,25 +93,32 @@ private:
     void move_buffer(const MemoryPtr& new_buffer);
     void move_data();
 
-    static void copy(const uint8_t* src, uint8_t* dst, size_t src_stride, size_t dst_stride, size_t count, size_t len);
+    static void copy(const uint8_t* src,
+                     uint8_t* dst,
+                     size_t src_stride,
+                     size_t dst_stride,
+                     size_t count,
+                     size_t len,
+                     const std::shared_ptr<CpuParallel>& cpu_parallel);
 
     /* variable states */
-    size_t len = 1lu;
-    size_t count = 1lu;
+    size_t len = 1LU;
+    size_t count = 1LU;
 
     ptrdiff_t chunk_stride_in_byte = 0;
     ptrdiff_t chunk_offset_in_byte = 0;
-    size_t chunk_unit_in_byte = 0lu;  // the amount of bytes copied per each count per each execution (iteration)
-    int num_execs = 0lu;              // number of executions happened
+    size_t chunk_unit_in_byte = 0LU;  // the amount of bytes copied per each count per each execution (iteration)
+    int num_execs = 0LU;              // number of executions happened
     int max_iter_count = -1;          // estimated maximum iter count
 
     /* invariable states */
     MemoryPtr from;
     std::vector<MemoryPtr> to;
     PortMap map_rule;
-    size_t elem_size = 0lu;
+    size_t elem_size = 0LU;
 
     MemoryPtr mem_holder_buffer;
+    std::shared_ptr<CpuParallel> cpu_parallel;
 };
 
 class TensorIterator : public Node {
@@ -157,8 +167,13 @@ private:
 
     /* Dynamic support */
     void reshapeSubgraphInput();
-    void reshapeAndFillOutput(const dnnl::stream& strm);
+    void reshapeAndFillOutput(const dnnl::stream& strm, bool zeroIterations);
     bool checkForInputAndBodyShapesInequality() const;
+
+    /* Zero iterations support */
+    int getInitialValueInputPort(const PortMap& outputMapRule) const;
+    bool fillOutputByInitialValue(const dnnl::stream& strm, const PortMap& outputMapRule);
+
     int getNumIteration(const std::vector<PortMap>& inputPortMap, const std::vector<PortMap>& outputPortMap) const;
     void prepareParamsImpl(bool compileStage);
 
@@ -181,10 +196,17 @@ private:
     std::unordered_map<std::pair<int, int>, std::shared_ptr<PortMapHelper>, PortMapHasher>
         first_mappers;  /// < Applied once before loop
 
-    std::vector<std::shared_ptr<PortMapHelper>> last_mappers,  /// < Applied once after loop
-        before_mappers,                                        /// < Applied before each iteration
-        after_mappers,                                         /// < Applied after each iteration
-        back_mappers;                                          /// < Applied before each iteration for dynamic shapes
+    /// Fills one output port once the loop is over: 'mapper' uses the last executed iteration's value, while
+    /// 'zeroIterMapper' (set only for loop carried dependencies) falls back to the initial merged input value.
+    struct LastPortMapper {
+        std::shared_ptr<PortMapHelper> mapper;
+        std::shared_ptr<PortMapHelper> zeroIterMapper;
+    };
+    std::vector<LastPortMapper> last_mappers;  /// < Applied once after loop
+
+    std::vector<std::shared_ptr<PortMapHelper>> before_mappers,  /// < Applied before each iteration
+        after_mappers,                                           /// < Applied after each iteration
+        back_mappers;                                            /// < Applied before each iteration for dynamic shapes
 
     std::shared_ptr<PortChecker> trip_count_check,  /// < Perform check of trip count value. value >= -1
         initial_cond_check,   /// < Perform check of initial continue condition value. value [0, 1]

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -13,10 +13,7 @@ namespace transform {
 
 using ::ONNX_NAMESPACE::ModelProto;
 
-static const std::vector<std::string> onnx_functions_to_expand = {"AffineGrid",
-                                                                  "Bernoulli",
-                                                                  "CenterCropPad",
-                                                                  "SoftmaxCrossEntropyLoss"};
+static const std::vector<std::string> onnx_functions_to_expand = {"Bernoulli"};
 
 /// \brief Replace nodes with expanded body of ONNX functions
 ///
@@ -41,8 +38,7 @@ static const std::vector<std::string> legacy_ops_to_fixup = {"DeformableConv2D",
                                                              "GroupNorm",
                                                              "Normalize",
                                                              "PriorBox",
-                                                             "PriorBoxClustered",
-                                                             "Swish"};
+                                                             "PriorBoxClustered"};
 
 /// \brief Add support for models with custom operators mistakenly registered in
 ///        "ai.onnx" domain.

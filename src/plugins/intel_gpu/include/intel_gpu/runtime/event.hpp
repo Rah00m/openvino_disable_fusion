@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -32,9 +32,23 @@ public:
         _profiling_captured = false;
         _profiling_info.clear();
     }
+    /// @brief Set event profiling data instead of retrieving it from event object
+    /// @param duration_nsec duration in nanoseconds
+    void set_profiling_duration(uint64_t duration_nsec) {
+        auto stage = instrumentation::profiling_stage::executing;
+        auto duration = std::chrono::nanoseconds(duration_nsec);
+        auto period = std::make_shared<instrumentation::profiling_period_basic>(duration);
+
+        _profiling_info.push_back({ stage, period });
+        _profiling_captured = true;
+    }
 
     // returns true if handler has been successfully added
     bool add_event_handler(event_handler handler, void* data);
+#ifdef ENABLE_MLIR_FOR_GPU
+    // return a handle to an underlying event implementation (i.e. cl_event for OpenCL)
+    virtual void* get_native_handle() { return nullptr; }
+#endif
 
     std::vector<instrumentation::profiling_interval> get_profiling_info();
 

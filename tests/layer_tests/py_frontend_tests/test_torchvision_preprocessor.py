@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright (C) 2018-2025 Intel Corporation
+# Copyright (C) 2018-2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
 import copy
@@ -89,13 +89,15 @@ def test_normalize():
     ("target_size", "current_size", "interpolation", "tolerance"),
     [
         (224, (220, 220, 3), transforms.InterpolationMode.NEAREST, 4e-05),
-        (224, (200, 240, 3), transforms.InterpolationMode.NEAREST, 0.3),  # Ticket 127670
+        (224, (200, 240, 3), transforms.InterpolationMode.NEAREST, 4e-05),
         (224, (220, 220, 3), transforms.InterpolationMode.BILINEAR, 4e-03),
         (224, (200, 240, 3), transforms.InterpolationMode.BILINEAR, 4e-03),
         (224, (220, 220, 3), transforms.InterpolationMode.BICUBIC, 4e-03),
         (224, (200, 240, 3), transforms.InterpolationMode.BICUBIC, 4e-03),
         ((224, 224), (220, 220, 3), transforms.InterpolationMode.NEAREST, 4e-05),
         ((224, 224), (200, 240, 3), transforms.InterpolationMode.NEAREST, 4e-05),
+        # integer scale factor -> every sampled coordinate is a rounding tie
+        ((224, 224), (448, 448, 3), transforms.InterpolationMode.NEAREST, 4e-05),
         ((224, 224), (220, 220, 3), transforms.InterpolationMode.BILINEAR, 4e-03),
         ((224, 224), (200, 240, 3), transforms.InterpolationMode.BILINEAR, 4e-03),
         ((224, 224), (220, 220, 3), transforms.InterpolationMode.BICUBIC, 4e-03),

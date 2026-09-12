@@ -1,4 +1,4 @@
-// Copyright (C) 2023-2024 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -32,7 +32,7 @@ std::vector<std::shared_ptr<ov::Node>> clone_nodes(const std::vector<std::shared
         if (node_map.count(node.get()) == 0) {
             // get (already) cloned arguments and clone the node
             OutputVector cloned_args;
-            for (auto input : node->inputs()) {
+            for (const auto& input : node->inputs()) {
                 ov::Output<Node> output = input.get_source_output();
                 cloned_args.push_back(output.for_node(node_map.at(output.get_node())));
             }
@@ -50,13 +50,13 @@ std::vector<std::shared_ptr<ov::Node>> clone_nodes(const std::vector<std::shared
             auto rt_info = node->get_rt_info();
             cloned_node->get_rt_info() = rt_info;
 
-            for (auto output : node->outputs()) {
+            for (const auto& output : node->outputs()) {
                 const auto& output_rt_info = output.get_rt_info();
                 auto new_output = output.for_node(cloned_node);
                 new_output.get_rt_info() = output_rt_info;
             }
 
-            for (auto input : node->inputs()) {
+            for (const auto& input : node->inputs()) {
                 const auto& output_rt_info = input.get_rt_info();
                 auto new_input = cloned_node->input(input.get_index());
                 new_input.get_rt_info() = output_rt_info;
@@ -80,6 +80,7 @@ std::vector<std::shared_ptr<ov::Node>> clone_nodes(const std::vector<std::shared
 void LinearIRBuilder::clone(const LinearIR* src, LinearIR* dst, ExpressionMap& expression_map) const {
     OPENVINO_ASSERT(src && dst, "Invalid pointers were provided for LinearIRBuilder::clone");
     dst->m_config = src->m_config;
+    dst->m_friendly_name = src->m_friendly_name;
 
     dst->m_expressions = clone_range(src->m_expressions.cbegin(), src->m_expressions.cend(), expression_map);
     for (const auto& expr : dst->m_expressions) {
@@ -89,6 +90,7 @@ void LinearIRBuilder::clone(const LinearIR* src, LinearIR* dst, ExpressionMap& e
     dst->m_loop_manager = src->m_loop_manager->clone_with_new_expr(expression_map);
     // It's Ok to share shapeInfer factory ptr, since the factory doesn't depend on LIR in any way
     dst->m_shape_infer_factory = src->m_shape_infer_factory;
+    dst->m_expression_factory = std::make_shared<ExpressionFactory>(dst->m_shape_infer_factory);
     dst->m_shape_infer = std::make_shared<LinearIR::LIRShapeInfer>(dst->m_expressions,
                                                                    dst->m_parameter_expressions,
                                                                    dst->m_result_expressions);

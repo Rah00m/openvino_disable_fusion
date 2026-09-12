@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -11,6 +11,7 @@
 #include "intel_gpu/runtime/lru_cache.hpp"
 #include "intel_gpu/runtime/execution_config.hpp"
 #include "intel_gpu/graph/kernel_impl_params.hpp"
+#include "intel_gpu/runtime/internal_properties.hpp"
 
 #include <list>
 #include <string>
@@ -53,11 +54,11 @@ struct program {
 public:
     struct nodes_ordering {
     public:
-        typedef std::list<program_node*> list_of_nodes;
-        typedef list_of_nodes::const_iterator const_iterator;
-        typedef list_of_nodes::const_reverse_iterator const_reverse_iterator;
-        typedef list_of_nodes::iterator node_iterator;
-        typedef list_of_nodes::reverse_iterator node_reverse_iterator;
+        using list_of_nodes = std::list<program_node *>;
+        using const_iterator = list_of_nodes::const_iterator;
+        using const_reverse_iterator = list_of_nodes::const_reverse_iterator;
+        using node_iterator = list_of_nodes::iterator;
+        using node_reverse_iterator = list_of_nodes::reverse_iterator;
         const_iterator begin() const { return _processing_order.begin(); }
         const_iterator end() const { return _processing_order.end(); }
         const_reverse_iterator rbegin() const { return _processing_order.rbegin(); }
@@ -125,9 +126,9 @@ public:
         T* elem;
     };
 
-    typedef std::vector<primitive_info> primitives_info;
-    typedef std::vector<std::pair<std::string, primitives_info>> graph_optimizer_info;
-    typedef std::pair<primitive_id, std::vector<primitive_id>> optimized_info;
+    using primitives_info = std::vector<primitive_info>;
+    using graph_optimizer_info = std::vector<std::pair<std::string, primitives_info>>;
+    using optimized_info = std::pair<primitive_id, std::vector<primitive_id>>;
 
     program(engine& engine_ref,
             topology const& topology,
@@ -231,6 +232,7 @@ public:
     void mark_if_constant(program_node& node);
     // mark if the node is in data flow assuming that all dependencies are marked properly
     void mark_if_data_flow(program_node& node);
+    void mark_if_gemm_data_flow();
     // Reverses connection - user becomes dependency.
 
     void remove_nodes(std::vector<program_node*>& to_remove);
@@ -289,7 +291,9 @@ public:
     static std::shared_ptr<ICompilationContext> make_compilation_context(const ExecutionConfig& config);
 
     void save(cldnn::BinaryOutputBuffer& ob) const;
-    void load(cldnn::BinaryInputBuffer& ib, std::shared_ptr<const ov::Model> model_ptr = nullptr);
+    void load(cldnn::BinaryInputBuffer& ib, std::shared_ptr<const ov::Model> model_ptr = nullptr,
+              std::shared_ptr<ov::intel_gpu::GpuWeightlessCacheMap> cache_attr_map = nullptr);
+
     bool is_loaded_from_cache() const { return _loaded_from_cache; }
 
     bool is_new_shape_infer() const { return new_shape_infer; }

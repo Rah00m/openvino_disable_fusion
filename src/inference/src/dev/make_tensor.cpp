@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -7,7 +7,7 @@
 #include <memory>
 #include <mutex>
 
-#include "openvino/core/type/element_iterator.hpp"
+#include "openvino/core/memory_util.hpp"
 #include "openvino/core/type/element_type_info.hpp"
 #include "openvino/runtime/iremote_tensor.hpp"
 #include "openvino/runtime/properties.hpp"
@@ -84,6 +84,19 @@ public:
         return m_ptr;
     }
 
+    void* data_rw() override {
+        return m_ptr;
+    }
+
+    void* data_rw(const element::Type& element_type) override {
+        OPENVINO_ASSERT(is_pointer_representable(element_type),
+                        "Tensor data with element type ",
+                        get_element_type(),
+                        ", is not representable as pointer to ",
+                        element_type);
+        return m_ptr;
+    }
+
     const element::Type& get_element_type() const override {
         return m_element_type;
     }
@@ -105,6 +118,14 @@ public:
                         m_element_type);
         std::call_once(m_strides_once, &ViewTensor::update_strides, this);
         return m_strides;
+    }
+
+    std::optional<uint64_t> get_source_id() const {
+        return m_source_id;
+    }
+
+    void set_source_id(uint64_t id) {
+        m_source_id = id;
     }
 
 protected:
@@ -144,6 +165,7 @@ protected:
     mutable Strides m_strides;
     mutable std::once_flag m_strides_once;
     void* m_ptr;
+    std::optional<uint64_t> m_source_id;
 };
 
 /**
@@ -157,11 +179,11 @@ public:
 
     using ViewTensor::data;
 
-    [[noreturn]] void* data() override {
+    [[noreturn]] void* data_rw() override {
         OPENVINO_THROW("Can not access non-const pointer use e.g. 'static_cast<const ov::Tensor&>.data()'");
     }
 
-    [[noreturn]] void* data(const element::Type& element_type) override {
+    [[noreturn]] void* data_rw(const element::Type& element_type) override {
         OPENVINO_THROW("Can not access non-const pointer use e.g. 'static_cast<const ov::Tensor&>.data(element_type)'");
     }
 };
@@ -231,7 +253,11 @@ public:
 
     using StridedViewTensor::data;
 
-    [[noreturn]] void* data(const element::Type& element_type) override {
+    [[noreturn]] void* data_rw() override {
+        OPENVINO_THROW("Can not access non-const pointer use e.g. 'static_cast<const ov::Tensor&>.data()'");
+    }
+
+    [[noreturn]] void* data_rw(const element::Type& element_type) override {
         OPENVINO_THROW("Can not access non-const pointer use e.g. 'static_cast<const ov::Tensor&>.data()'");
     }
 };
@@ -280,20 +306,26 @@ std::shared_ptr<ITensor> make_tensor(const element::Type element_type,
  * Tensor owns the memory
  */
 class AllocatedTensor : public ViewTensor {
+    using MemSpace = std::pair<void*, size_t>;
+
+    static MemSpace do_allocate(const element::Type& element_type, const Shape& shape, const Allocator& allocator) {
+        OPENVINO_ASSERT(allocator, "Allocator was not initialized");
+        const auto byte_size = util::get_memory_size_safe(element_type, shape);
+        OPENVINO_ASSERT(byte_size, bad_alloc_error_msg(element_type, shape));
+        auto data = const_cast<Allocator&>(allocator).allocate(*byte_size);
+        OPENVINO_ASSERT(*byte_size == 0 || data != nullptr, "Failed to allocate memory");
+        initialize_elements(data, element_type, shape);
+        return {data, *byte_size};
+    }
+
+    AllocatedTensor(const element::Type element_type, const Shape& shape, const Allocator& allocator, MemSpace alloc)
+        : ViewTensor{element_type, shape, alloc.first},
+          m_allocator{allocator},
+          m_bytes_capacity{alloc.second} {}
+
 public:
     AllocatedTensor(const element::Type element_type, const Shape& shape, const Allocator& allocator)
-        : ViewTensor{element_type,
-                     shape,
-                     [&shape, &element_type, &allocator] {
-                         OPENVINO_ASSERT(allocator, "Allocator was not initialized");
-                         const auto byte_size = element::get_memory_size(element_type, shape_size(shape));
-                         auto data = const_cast<Allocator&>(allocator).allocate(byte_size);
-                         OPENVINO_ASSERT(byte_size == 0 || data != nullptr, "Failed to allocate memory");
-
-                         initialize_elements(data, element_type, shape);
-                         return data;
-                     }()},
-          m_allocator{allocator} {}
+        : AllocatedTensor{element_type, shape, allocator, do_allocate(element_type, shape, allocator)} {}
 
     ~AllocatedTensor() {
         destroy_memory();
@@ -303,14 +335,16 @@ public:
         if (m_shape == new_shape)
             return;
 
+        const auto byte_size = util::get_memory_size_safe(m_element_type, new_shape);
+        OPENVINO_ASSERT(byte_size, bad_alloc_error_msg(m_element_type, new_shape));
         m_shape = std::move(new_shape);
 
-        if (get_size() > get_capacity()) {
+        if (*byte_size > get_bytes_capacity()) {
             destroy_memory();
-
             // allocate buffer and initialize objects from scratch
             m_capacity = m_shape;
-            m_ptr = m_allocator.allocate(get_bytes_capacity());
+            m_ptr = m_allocator.allocate(*byte_size);
+            m_bytes_capacity = *byte_size;
             initialize_elements(m_ptr, m_element_type, m_shape);
         }
 
@@ -321,7 +355,7 @@ public:
 private:
     void destroy_elements(size_t begin_ind, size_t end_ind) {
         // it removes elements from tail
-        if (get_element_type() == element::Type_t::string) {
+        if (m_ptr != nullptr && get_element_type() == element::string) {
             auto strings = static_cast<std::string*>(m_ptr);
             for (size_t ind = begin_ind; ind < end_ind; ++ind) {
                 using std::string;
@@ -349,10 +383,15 @@ private:
     }
 
     size_t get_bytes_capacity() const {
-        return element::get_memory_size(get_element_type(), get_capacity());
+        return m_bytes_capacity;
+    }
+
+    static std::string bad_alloc_error_msg(const element::Type& element_type, const Shape& shape) {
+        return "Cannot allocate memory for type: " + element_type.to_string() + " and shape: " + shape.to_string();
     }
 
     Allocator m_allocator;
+    size_t m_bytes_capacity;
 };
 
 /**
@@ -411,6 +450,10 @@ public:
         m_shape = std::move(new_shape);
     }
 
+    size_t get_offset() const {
+        return m_offset;
+    }
+
 protected:
     std::shared_ptr<ITensor> m_owner;
     Shape m_shape;
@@ -457,6 +500,14 @@ public:
 
     const void* data(const element::Type& element_type) const override {
         return static_cast<uint8_t*>(m_owner->data()) + m_offset;
+    }
+
+    void* data_rw() override {
+        return static_cast<uint8_t*>(m_owner->data_rw()) + m_offset;
+    }
+
+    void* data_rw(const element::Type& element_type) override {
+        return static_cast<uint8_t*>(m_owner->data_rw(element_type)) + m_offset;
     }
 };
 
@@ -580,6 +631,26 @@ ov::SoPtr<ov::ITensor> get_tensor_impl(const ov::Tensor& tensor) {
     std::shared_ptr<void> so;
     util::get_tensor_impl(tensor, tensor_impl, so);
     return ov::SoPtr<ov::ITensor>(tensor_impl, so);
+}
+
+size_t get_tensor_data_offset(const ov::ITensor& tensor) {
+    if (auto tensor_impl = dynamic_cast<const BaseRoiTensor*>(&tensor)) {
+        return tensor_impl->get_offset();
+    }
+    return 0;
+}
+
+std::optional<uint64_t> get_tensor_source_id(const ov::Tensor& tensor) {
+    if (auto itensor = std::dynamic_pointer_cast<ViewTensor>(get_tensor_impl(tensor)._ptr)) {
+        return itensor->get_source_id();
+    }
+    return std::nullopt;
+}
+
+void set_tensor_source_id(ov::Tensor& tensor, uint64_t id) {
+    if (auto itensor = std::dynamic_pointer_cast<ViewTensor>(get_tensor_impl(tensor)._ptr)) {
+        itensor->set_source_id(id);
+    }
 }
 
 }  // namespace ov

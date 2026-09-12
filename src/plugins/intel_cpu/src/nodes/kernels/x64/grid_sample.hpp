@@ -1,20 +1,25 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #pragma once
 
-#include <cpu/x64/xbyak/xbyak.h>
-
 #include <cassert>
-#include <common/utils.hpp>
-#include <cpu/x64/cpu_isa_traits.hpp>
-#include <cpu/x64/jit_generator.hpp>
 #include <cstdint>
 
 #include "jit_kernel_base.hpp"
-#include "nodes/kernels/x64/registers_pool.hpp"
 #include "openvino/core/type/element_type.hpp"
+#include "openvino/core/visibility.hpp"
+
+#if defined(OPENVINO_ARCH_X86_64)
+#    include <xbyak/xbyak.h>
+
+#    include <common/utils.hpp>
+#    include <cpu/x64/cpu_isa_traits.hpp>
+#    include <cpu/x64/jit_generator.hpp>
+
+#    include "nodes/kernels/x64/registers_pool.hpp"
+#endif  // OPENVINO_ARCH_X86_64
 
 namespace ov::intel_cpu {
 
@@ -36,24 +41,24 @@ struct GridSampleKernelConfParams {
     GridSamplePaddingMode paddingMode = GridSamplePaddingMode::ZEROS;
     ov::element::Type inDataPrc;
     ov::element::Type gridPrc;
-    uint64_t batchNum = 1lu;
-    uint64_t cannelNum = 1lu;
-    uint64_t srcBatchStepB = 0lu;
+    uint64_t batchNum = 1LU;
+    uint64_t cannelNum = 1LU;
+    uint32_t srcBatchStepB = 0LU;
 };
 
 struct GridSamplesKernelExecArgs {
     const void* src = nullptr;
     const void* grid = nullptr;
     void* dst = nullptr;
-    uint64_t batchNum = 1lu;
-    uint64_t channelsNum = 1lu;
+    uint64_t batchNum = 1LU;
+    uint64_t channelsNum = 1LU;
     const float* srcWidthF = nullptr;
     const float* srcHeightF = nullptr;
-    uint64_t srcBatchStepB = 0lu;
-    uint64_t gridBatchStepB = 0lu;
-    uint64_t dstBatchStepB = 0lu;
-    uint64_t srcChannelStepB = 0lu;
-    uint64_t dstChannelStepB = 0lu;
+    uint64_t srcBatchStepB = 0LU;
+    uint64_t gridBatchStepB = 0LU;
+    uint64_t dstBatchStepB = 0LU;
+    uint64_t srcChannelStepB = 0LU;
+    uint64_t dstChannelStepB = 0LU;
     const void* wDenormCoefF = nullptr;
     const void* hDenormCoefF = nullptr;
     const void* srcWidthB = nullptr;
@@ -65,7 +70,7 @@ struct GridSamplesKernelExecArgs {
     const void* srcWidthSub1F = nullptr;
     const void* dataTypeSize = nullptr;
     const void* buffer = nullptr;
-    uint64_t workAmount = 0lu;
+    uint64_t workAmount = 0LU;
 };
 
 enum coord : uint8_t { w, h };
@@ -80,7 +85,7 @@ public:
     explicit GridSampleKernelBase(const char* name,
                                   const GridSampleKernelConfParams& jcp,
                                   dnnl::impl::cpu::x64::cpu_isa_t isa,
-                                  uint64_t vlen)
+                                  uint32_t vlen)
         : JitKernelBase(name, isa),
 
           jcp(jcp),
@@ -91,23 +96,23 @@ public:
           gridElPerVec(vlen / gridTypeSize) {}
 
     virtual void create_ker() = 0;
-    uint64_t getVecLen() const {
+    uint32_t getVecLen() const {
         return vlen;
     }
-    uint64_t getDataElPerVec() const {
+    uint32_t getDataElPerVec() const {
         return dataElPerVec;
     }
-    uint64_t getGridElPerVec() const {
+    uint32_t getGridElPerVec() const {
         return gridElPerVec;
     }
 
 protected:
     GridSampleKernelConfParams jcp;
-    uint64_t vlen = 16lu;
-    uint64_t dataTypeSize = 1lu;
-    uint64_t gridTypeSize = 1lu;
-    uint64_t dataElPerVec = 1lu;
-    uint64_t gridElPerVec = 1lu;
+    uint32_t vlen = 16LU;
+    uint32_t dataTypeSize = 1LU;
+    uint32_t gridTypeSize = 1LU;
+    uint32_t dataElPerVec = 1LU;
+    uint32_t gridElPerVec = 1LU;
 };
 
 template <dnnl::impl::cpu::x64::cpu_isa_t isa>

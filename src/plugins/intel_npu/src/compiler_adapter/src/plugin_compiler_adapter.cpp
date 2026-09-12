@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -7,58 +7,52 @@
 #include <memory>
 #include <string>
 
+#include "dynamic_graph.hpp"
 #include "graph.hpp"
 #include "intel_npu/common/device_helpers.hpp"
 #include "intel_npu/common/itt.hpp"
+#include "intel_npu/common/option_support_cache.hpp"
 #include "intel_npu/config/options.hpp"
 #include "intel_npu/npu_private_properties.hpp"
 #include "intel_npu/utils/logger/logger.hpp"
-#include "intel_npu/utils/zero/zero_api.hpp"
+#include "intel_npu/utils/utils.hpp"
+#include "intel_npu/utils/vm/npu_vm_runtime_api.hpp"
 #include "intel_npu/utils/zero/zero_result.hpp"
+#include "mem_usage.hpp"
+#include "openvino/core/model.hpp"
 #include "openvino/runtime/make_tensor.hpp"
 #include "openvino/util/file_util.hpp"
 #include "openvino/util/shared_object.hpp"
-
-namespace {
-std::shared_ptr<void> loadLibrary(const std::string& libpath) {
-#if defined(OPENVINO_ENABLE_UNICODE_PATH_SUPPORT) && defined(_WIN32)
-    return ov::util::load_shared_object(ov::util::string_to_wstring(libpath).c_str());
-#else
-    return ov::util::load_shared_object(libpath.c_str());
-#endif
-}
-
-std::shared_ptr<intel_npu::ICompiler> getCompiler(std::shared_ptr<void> so) {
-    static constexpr auto CreateFuncName = "CreateNPUCompiler";
-    auto symbol = ov::util::get_symbol(so, CreateFuncName);
-
-    using CreateFuncT = void (*)(std::shared_ptr<intel_npu::ICompiler>&);
-    const auto createFunc = reinterpret_cast<CreateFuncT>(symbol);
-
-    std::shared_ptr<intel_npu::ICompiler> compilerPtr;
-    createFunc(compilerPtr);
-    return compilerPtr;
-}
-
-ov::SoPtr<intel_npu::ICompiler> loadCompiler(const std::string& libpath) {
-    auto compilerSO = loadLibrary(libpath);
-    auto compiler = getCompiler(compilerSO);
-
-    return ov::SoPtr<intel_npu::ICompiler>(compiler, compilerSO);
-}
-}  // namespace
+#include "weightless_graph.hpp"
+#include "weightless_utils.hpp"
 
 namespace intel_npu {
 
-PluginCompilerAdapter::PluginCompilerAdapter(const std::shared_ptr<ZeroInitStructsHolder>& zeroInitStruct)
-    : _zeroInitStruct(zeroInitStruct),
-      _logger("PluginCompilerAdapter", Logger::global().level()) {
-    _logger.debug("initialize PluginCompilerAdapter start");
+namespace {
+constexpr OptionSupportCache::CacheKey pluginOptionSupportKey =
+    static_cast<OptionSupportCache::CacheKey>(ov::intel_npu::CompilerType::PLUGIN);
+}
 
-    _logger.info("MLIR compiler will be used.");
-    std::string baseName = "npu_mlir_compiler";
-    auto libPath = ov::util::make_plugin_library_name(ov::util::get_ov_lib_path(), baseName + OV_BUILD_POSTFIX);
-    _compiler = loadCompiler(libPath);
+PluginCompilerAdapter::PluginCompilerAdapter(const std::shared_ptr<ZeroInitStructsHolder>& zeroInitStruct,
+                                             const std::shared_ptr<OptionSupportCache>& optionSupportCache,
+                                             const std::optional<IDevice::DeviceProperties>& deviceProperties)
+    : _zeroInitStruct(zeroInitStruct),
+      _optionSupportCache(optionSupportCache),
+      _logger("PluginCompilerAdapter", Logger::global().level()) {
+    _logger.info("initialize PluginCompilerAdapter start");
+
+    _logger.info("Loading PLUGIN compiler");
+    try {
+        auto ovLibPath = ov::util::path_to_string(ov::util::get_ov_lib_path());
+        auto vclCompilerPtr = std::make_shared<VCLCompilerImpl>(ovLibPath, deviceProperties);
+        OPENVINO_ASSERT(vclCompilerPtr != nullptr, "VCL compiler is nullptr");
+        auto vclLib = vclCompilerPtr->getLinkedLibrary();
+        _logger.info("PLUGIN VCL compiler is loading");
+        OPENVINO_ASSERT(vclLib != nullptr, "VCL library is nullptr");
+        _compiler = ov::SoPtr<VCLCompilerImpl>(vclCompilerPtr, vclLib);
+    } catch (const std::exception& vclException) {
+        OPENVINO_THROW("VCL compiler loading failed, aborting. Error: ", vclException.what());
+    }
 
     if (_zeroInitStruct == nullptr) {
         return;
@@ -76,77 +70,212 @@ PluginCompilerAdapter::PluginCompilerAdapter(const std::shared_ptr<ZeroInitStruc
 }
 
 std::shared_ptr<IGraph> PluginCompilerAdapter::compile(const std::shared_ptr<const ov::Model>& model,
-                                                       const Config& config) const {
+                                                       const FilteredConfig& config) const {
     OV_ITT_TASK_CHAIN(COMPILE_BLOB, itt::domains::NPUPlugin, "PluginCompilerAdapter", "compile");
 
     _logger.debug("compile start");
-    auto networkDesc = _compiler->compile(model, config);
+    auto [tensor, compatibilityDescriptor] = _compiler->compile(model, config);
     _logger.debug("compile end");
 
-    auto tensor =
-        ov::Tensor(ov::element::u8, ov::Shape{networkDesc.compiledNetwork.size()}, networkDesc.compiledNetwork.data());
-    auto impl = ov::get_tensor_impl(tensor);
-    std::shared_ptr<std::vector<uint8_t>> sharedCompiledNetwork =
-        std::make_shared<std::vector<uint8_t>>(std::move(networkDesc.compiledNetwork));
-    impl._so = std::move(sharedCompiledNetwork);
-    tensor = ov::make_tensor(impl);
+    const auto& compilationMode = config.get<COMPILATION_MODE>();
+    const bool isHostCompile = compilationMode.find("HostCompile") != std::string::npos;
+    const BlobType blobType =
+        isHostCompile ? (compilationMode.find("HostCompile_Interpreter") != std::string::npos ? BlobType::BYTECODE
+                                                                                              : BlobType::LLVM)
+                      : BlobType::ELF;
+    if (blobType != BlobType::ELF) {
+        _logger.debug("HostCompile mode is detected from NPU_COMPILATION_MODE, use internal function to get metadata!");
+        NPUVMRuntimeApi::initializeFromBlob(tensor.data(), tensor.get_byte_size());
 
-    ze_graph_handle_t graphHandle = nullptr;
+        // metadata will be obtained in initialze() of DynamicGraph
+        _logger.debug("Use dynamicGraph to hold blob for HostCompile mode!");
+        return std::make_shared<DynamicGraph>(_zeroInitStruct, std::move(tensor), config, blobType);
+    }
+
+    GraphDescriptor graphDesc;
+    NetworkMetadata networkMeta;
 
     if (_zeGraphExt) {
         // Depending on the config, we may get an error when trying to get the graph handle from the compiled
         // network
         try {
-            graphHandle =
-                _zeGraphExt->getGraphHandle(*reinterpret_cast<const uint8_t*>(tensor.data()), tensor.get_byte_size());
-        } catch (...) {
-            _logger.info("Failed to obtain the level zero graph handle. Inference requests for this model are not "
-                         "allowed. Only exports are available");
+            graphDesc = _zeGraphExt->getGraphDescriptor(tensor.data(), tensor.get_byte_size());
+            networkMeta = _zeGraphExt->getNetworkMeta(graphDesc);
+            networkMeta.name = model->get_friendly_name();
+        } catch (const std::exception& ex) {
+            _logger.info("Failed to use the level zero graph handle: %s. Inference requests for this model are not "
+                         "allowed. Only exports are available",
+                         ex.what());
         }
+    } else {
+        _logger.warning("No driver is found, zeGraphExt is nullptr, so metadata is empty. Only exports are available");
     }
 
-    return std::make_shared<Graph>(_zeGraphExt,
-                                   _zeroInitStruct,
-                                   graphHandle,
-                                   std::move(networkDesc.metadata),
-                                   std::move(tensor),
-                                   /* blobAllocatedByPlugin = */ false,
-                                   config,
-                                   _compiler);
+    return std::make_shared<Graph>(
+        _zeGraphExt,
+        _zeroInitStruct,
+        graphDesc,
+        std::move(networkMeta),
+        std::move(tensor),
+        config,
+        compatibilityDescriptor,
+        /* persistentBlob = */ true);  // exporting the blob shall be available in such a scenario
 }
 
-std::shared_ptr<IGraph> PluginCompilerAdapter::parse(ov::Tensor blob,
-                                                     bool blobAllocatedByPlugin,
-                                                     const Config& config) const {
-    OV_ITT_TASK_CHAIN(PARSE_BLOB, itt::domains::NPUPlugin, "PluginCompilerAdapter", "parse");
+std::shared_ptr<IGraph> PluginCompilerAdapter::compileWS(std::shared_ptr<ov::Model>&& model,
+                                                         const FilteredConfig& config) const {
+    OV_ITT_TASK_CHAIN(COMPILE_BLOB, itt::domains::NPUPlugin, "PluginCompilerAdapter", "compileWS");
+    _logger.debug("compile start");
 
-    _logger.debug("parse start");
-    std::vector<uint8_t> network(blob.get_byte_size());
-    network.assign(reinterpret_cast<const uint8_t*>(blob.data()),
-                   reinterpret_cast<const uint8_t*>(blob.data()) + blob.get_byte_size());
-    auto networkMeta = _compiler->parse(network, config);
-    network.clear();
-    network.shrink_to_fit();
-    _logger.debug("parse end");
-
-    ze_graph_handle_t graphHandle = nullptr;
-
-    if (_zeGraphExt) {
-        graphHandle = _zeGraphExt->getGraphHandle(*reinterpret_cast<const uint8_t*>(blob.data()), blob.get_byte_size());
+    FilteredConfig localConfig = config;
+    if (!localConfig.has<SEPARATE_WEIGHTS_VERSION>()) {
+        localConfig.update(ov::intel_npu::separate_weights_version.name(), "ONE_SHOT");
     }
 
-    return std::make_shared<Graph>(_zeGraphExt,
-                                   _zeroInitStruct,
-                                   graphHandle,
-                                   std::move(networkMeta),
-                                   std::move(blob),
-                                   blobAllocatedByPlugin,
-                                   config,
-                                   _compiler);
+    _logger.info("SEPARATE_WEIGHTS_VERSION: %s",
+                 SEPARATE_WEIGHTS_VERSION::toString(localConfig.get<SEPARATE_WEIGHTS_VERSION>()).c_str());
+
+    int64_t compileModelMemStart = 0;
+    if (_logger.level() >= ov::log::Level::INFO) {
+        compileModelMemStart = get_peak_memory_usage();
+    }
+
+    std::vector<ov::Tensor> tensorsInits;
+    std::vector<GraphDescriptor> initGraphDescriptors;
+    std::vector<NetworkMetadata> initNetworkMetadata;
+
+    ov::Tensor tensorMain;
+    GraphDescriptor mainGraphDesc;
+    NetworkMetadata mainNetworkMetadata;
+    std::optional<std::string> compatibilityDescriptor;
+
+    switch (localConfig.get<SEPARATE_WEIGHTS_VERSION>()) {
+    case ov::intel_npu::WSVersion::ONE_SHOT: {
+        auto oneShotResult = _compiler->compileWsOneShot(model, localConfig);
+        auto initMainTensors = std::move(oneShotResult.first);
+        compatibilityDescriptor = std::move(oneShotResult.second);
+
+        tensorMain = initMainTensors.back();
+        initMainTensors.pop_back();
+        if (initMainTensors.empty()) {
+            _logger.warning("NPU compiler did not produce any init schedules. "
+                            "This likely means that the compiled model blob has weights inside even "
+                            "though weightless compilation was requested.");
+        }
+
+        tensorsInits = std::move(initMainTensors);
+
+        if (_zeGraphExt) {
+            // Depending on the config, we may get an error when trying to
+            // get the graph handle from the compiled network
+            try {
+                mainGraphDesc = _zeGraphExt->getGraphDescriptor(tensorMain.data(), tensorMain.get_byte_size());
+                mainNetworkMetadata = _zeGraphExt->getNetworkMeta(mainGraphDesc);
+            } catch (const std::exception& ex) {
+                _logger.info("Failed to use the level zero graph handle: %s. Inference requests for this model are not "
+                             "allowed. Only exports are available",
+                             ex.what());
+            }
+        } else {
+            _logger.warning(
+                "No driver is found, zeGraphExt is nullptr, so metadata is empty. Only exports are available");
+        }
+
+        initGraphDescriptors.reserve(tensorsInits.size());
+        initNetworkMetadata.reserve(tensorsInits.size());
+        for (const auto& tensor : tensorsInits) {
+            GraphDescriptor initGraphDesc;
+            NetworkMetadata initNetworkMeta;
+            if (_zeGraphExt) {
+                try {
+                    initGraphDesc = _zeGraphExt->getGraphDescriptor(tensor.data(), tensor.get_byte_size());
+                    initNetworkMeta = _zeGraphExt->getNetworkMeta(initGraphDesc);
+                } catch (const std::exception& ex) {
+                    _logger.info(
+                        "Failed to use the level zero graph handle: %s. Inference requests for this model are not "
+                        "allowed. Only exports are available",
+                        ex.what());
+                }
+            } else {
+                _logger.warning(
+                    "No driver is found, zeGraphExt is nullptr, so metadata is empty. Only exports are available");
+            }
+
+            initGraphDescriptors.push_back(initGraphDesc);
+            initNetworkMetadata.push_back(std::move(initNetworkMeta));
+        }
+    } break;
+    case ov::intel_npu::WSVersion::ITERATIVE: {
+        OPENVINO_ASSERT(_zeGraphExt,
+                        "The \"iterative\" implementation of the weights separation feature requires a Level Zero "
+                        "graph handle to compile a model.");
+
+        // The state of the model needs to be reset every iteration
+        const std::shared_ptr<ov::Model> originalModel = model->clone();
+        std::shared_ptr<ov::Model> targetModel = model;
+        size_t i = 0;
+
+        while (true) {
+            auto iterativeResult = _compiler->compileWsIterative(targetModel, localConfig, i++);
+            auto tensor = std::move(iterativeResult.first);
+            if (iterativeResult.second.has_value()) {
+                compatibilityDescriptor = std::move(iterativeResult.second);
+            }
+            if (!tensor) {
+                break;
+            }
+            GraphDescriptor graphDesc = _zeGraphExt->getGraphDescriptor(tensor.data(), tensor.get_byte_size());
+            NetworkMetadata networkMetadata = _zeGraphExt->getNetworkMeta(graphDesc);
+
+            if (isInitMetadata(networkMetadata)) {
+                networkMetadata.name = model->get_friendly_name() + "_init";
+                targetModel = originalModel->clone();
+                initGraphDescriptors.push_back(graphDesc);
+                tensorsInits.push_back(std::move(tensor));
+                initNetworkMetadata.push_back(std::move(networkMetadata));
+                continue;
+            }
+
+            networkMetadata.name = model->get_friendly_name() + "_main";
+            tensorMain = std::move(tensor);
+            mainGraphDesc = graphDesc;
+            mainNetworkMetadata = std::move(networkMetadata);
+            break;
+        }
+    } break;
+    default:
+        OPENVINO_THROW("Invalid \"SEPARATE_WEIGHTS_VERSION\" value found within the \"compileWS\" call: ",
+                       localConfig.get<SEPARATE_WEIGHTS_VERSION>());
+        break;
+    }
+
+    if (_logger.level() >= ov::log::Level::INFO) {
+        auto compileModelMemEnd = get_peak_memory_usage();
+        _logger.debug("Start of compilation memory usage: Peak %lld KB", compileModelMemStart);
+        _logger.debug("End of compilation memory usage: Peak %lld KB", compileModelMemEnd);
+        // Note: Following log is parsed by CI. Take care when modifying it.
+        _logger.info("Compilation memory usage: Peak %lld KB", compileModelMemEnd - compileModelMemStart);
+    }
+
+    _logger.debug("compile end");
+
+    return std::make_shared<WeightlessGraph>(
+        _zeGraphExt,
+        _zeroInitStruct,
+        mainGraphDesc,
+        std::move(mainNetworkMetadata),
+        std::move(tensorMain),
+        initGraphDescriptors,
+        std::move(initNetworkMetadata),
+        tensorsInits,
+        std::move(model),
+        localConfig,
+        /* persistentBlob = */ true,
+        compatibilityDescriptor);  // exporting the blob shall be available in such a scenario
 }
 
 ov::SupportedOpsMap PluginCompilerAdapter::query(const std::shared_ptr<const ov::Model>& model,
-                                                 const Config& config) const {
+                                                 const FilteredConfig& config) const {
     OV_ITT_TASK_CHAIN(QUERY_BLOB, itt::domains::NPUPlugin, "PluginCompilerAdapter", "query");
 
     return _compiler->query(model, config);
@@ -158,15 +287,56 @@ uint32_t PluginCompilerAdapter::get_version() const {
 }
 
 std::vector<std::string> PluginCompilerAdapter::get_supported_options() const {
-    // PluginCompiler has all the same options as plugin
-    // Returing empty string to let the plugin fallback to legacy registration
-    return {};
+    std::vector<char> options;
+    _compiler->get_supported_options(options);
+    size_t optionsSize = options.size();
+    while (optionsSize > 0 && options[optionsSize - 1] == '\0') {
+        --optionsSize;
+    }
+    if (optionsSize == 0) {
+        return {};
+    }
+
+    std::string compilerOptionsStr(options.data(), optionsSize);
+    _logger.debug("VCLCompilerImpl return supported_options: %s", compilerOptionsStr.c_str());
+    // vectorize string
+    std::istringstream suppstream(compilerOptionsStr);
+    std::vector<std::string> compilerOpts = {};
+    std::string option;
+    while (suppstream >> option) {
+        compilerOpts.push_back(option);
+    }
+
+    if (_optionSupportCache) {
+        _optionSupportCache->setSupportedOptions(pluginOptionSupportKey, compilerOpts);
+    }
+    return compilerOpts;
 }
 
-bool PluginCompilerAdapter::is_option_supported(std::string optname) const {
-    // This functions has no utility in PluginCompiler
-    // returning false for any request to avoid the option of spaming the plugin
-    return false;
+bool PluginCompilerAdapter::is_option_supported(const std::string& optname,
+                                                const std::optional<std::string>& optValue) const {
+    bool optionSupportCache = _optionSupportCache && !optValue.has_value();
+    if (optionSupportCache) {
+        const auto cachedSupport = _optionSupportCache->isOptionSupported(pluginOptionSupportKey, optname);
+        if (cachedSupport.has_value()) {
+            _logger.debug("Option %s %s by PluginCompilerAdapter",
+                          optname.c_str(),
+                          cachedSupport.value() ? "is supported" : "is not supported");
+            return cachedSupport.value();
+        }
+    }
+
+    const bool supported = _compiler->is_option_supported(optname, optValue);
+    if (optionSupportCache) {
+        _optionSupportCache->addSupportedOption(pluginOptionSupportKey, optname, supported);
+    }
+
+    _logger.debug("Option %s with value '%s' %s by PluginCompilerAdapter",
+                  optname.c_str(),
+                  optValue.has_value() ? optValue->c_str() : "null",
+                  supported ? "is supported" : "is not supported");
+
+    return supported;
 }
 
 }  // namespace intel_npu

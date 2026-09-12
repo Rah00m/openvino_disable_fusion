@@ -1,10 +1,11 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma once
 
+#include <filesystem>
 #include <map>
 #include <string>
 
@@ -196,6 +197,14 @@ struct IdleGuard<NotBusyPriorityWorkerRequests> {
 };
 
 class Plugin;
+
+// Selection-policy inputs consumed by Plugin::select_device: a hard filter (utilization thresholds)
+// applied first, then a ranking (performance curves) applied to the survivors.
+struct DeviceSelectionPolicy {
+    std::unordered_map<std::string, unsigned> utilization_thresholds;
+    ov::intel_auto::PerfCurveTable            perf_curve_table;
+};
+
 class ScheduleContext : public std::enable_shared_from_this<ScheduleContext>  {
 public:
     using Ptr = std::shared_ptr<ScheduleContext>;
@@ -210,9 +219,10 @@ public:
     bool                                           m_runtime_fallback = true;
     bool                                           m_bind_buffer = false;
     std::shared_ptr<ov::Model>                     m_model;
-    std::string                                    m_model_path;
+    std::filesystem::path                          m_model_path;
     std::shared_ptr<const ov::IPlugin>             m_plugin;
     std::string                                    m_str_devices;
+    std::vector<std::string>                       m_str_devices_initial;
     unsigned int                                   m_model_priority = 0;
     ov::Any                                        m_performance_hint;
     ov::Any                                        m_schedule_policy = ov::intel_auto::SchedulePolicy::DEFAULT;
@@ -220,6 +230,8 @@ public:
     std::mutex                                     m_fallback_mutex;
     SoCompiledModel                                m_hw_compiled_model;
     std::string                                    m_model_precision;
+    DeviceSelectionPolicy                          m_selection_policy;
+    std::string                                    m_low_power_device;
     // hold the resource of static variable to avoid the unexpected destruction.
     std::shared_ptr<std::mutex>                                          m_mtx;
     std::shared_ptr<std::map<unsigned int, std::list<std::string>>>      m_priority_map;

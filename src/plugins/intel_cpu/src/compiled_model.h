@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -102,13 +102,14 @@ private:
     std::shared_ptr<SubMemoryManager> m_sub_memory_manager = nullptr;
     bool m_has_sub_compiled_models = false;
     bool m_optimized_single_stream = false;
+    std::string m_runtime_requirements;
 };
 
 // This class provides safe access to the internal CompiledModel structures and helps to decouple SyncInferRequest and
 // the CompiledModel internal structures
 class CompiledModelHolder {
 public:
-    CompiledModelHolder(std::shared_ptr<const CompiledModel> compiled_model)
+    explicit CompiledModelHolder(std::shared_ptr<const CompiledModel> compiled_model)
         : m_compiled_model(std::move(compiled_model)) {
         OPENVINO_ASSERT(!m_compiled_model->m_graphs.empty(),
                         "No graph was found in the compiled model: ",

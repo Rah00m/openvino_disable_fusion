@@ -1,4 +1,4 @@
-# Copyright (C) 2018-2025 Intel Corporation
+# Copyright (C) 2018-2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -37,7 +37,7 @@ if(ENABLE_LTO)
     set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 endif()
 
-if(ENABLE_PROFILING_ITT)
+if(NOT ENABLE_PROFILING_ITT STREQUAL "OFF")
     find_package(ittapi QUIET)
     if(ittapi_FOUND)
         if(TARGET ittapi::ittapi)
@@ -51,6 +51,10 @@ if(ENABLE_PROFILING_ITT)
         endif()
     else()
         add_subdirectory(thirdparty/ittapi)
+        ov_developer_package_export_targets(
+            TARGET ittapi::ittnotify
+            INSTALL_INCLUDE_DIRECTORIES
+                $<TARGET_PROPERTY:ittapi::ittnotify,INTERFACE_INCLUDE_DIRECTORIES>/)
     endif()
     add_subdirectory(thirdparty/itt_collector)
 endif()
@@ -68,7 +72,7 @@ endif()
 # LevelZero
 #
 
-if(ENABLE_INTEL_NPU)
+if(ENABLE_OV_ZERO_LOADER)
     if(ENABLE_SYSTEM_LEVEL_ZERO)
         pkg_search_module(level_zero QUIET
                           IMPORTED_TARGET
@@ -83,7 +87,20 @@ if(ENABLE_INTEL_NPU)
     if(NOT level_zero_FOUND)
         add_subdirectory(thirdparty/level_zero EXCLUDE_FROM_ALL)
         add_library(LevelZero::LevelZero ALIAS ze_loader)
+        ov_developer_package_export_targets(
+            TARGET ze_loader
+            INSTALL_INCLUDE_DIRECTORIES
+                $<TARGET_PROPERTY:ze_loader,INTERFACE_INCLUDE_DIRECTORIES>/ze_api.h
+                $<TARGET_PROPERTY:ze_loader,INTERFACE_INCLUDE_DIRECTORIES>/loader)
+        ov_install_static_lib(ze_loader ${OV_CPACK_COMP_CORE})
     endif()
+    add_library(level_zero_headers INTERFACE)
+    add_library(LevelZero::Headers ALIAS level_zero_headers)
+    if (TARGET prepare_ze_headers)
+        add_dependencies(level_zero_headers prepare_ze_headers)
+    endif()
+    get_target_property(ZE_INCLUDE_DIRS LevelZero::LevelZero INTERFACE_INCLUDE_DIRECTORIES)
+    target_include_directories(level_zero_headers INTERFACE ${ZE_INCLUDE_DIRS})
 endif()
 
 #
@@ -291,7 +308,10 @@ if(NOT TARGET openvino::pugixml)
         ov_build_pugixml_static()
         set_property(TARGET pugixml-static PROPERTY EXPORT_NAME pugixml)
         add_library(openvino::pugixml ALIAS pugixml-static)
-        ov_developer_package_export_targets(TARGET openvino::pugixml)
+        ov_developer_package_export_targets(TARGET openvino::pugixml
+            INSTALL_INCLUDE_DIRECTORIES
+                $<TARGET_PROPERTY:openvino::pugixml,INTERFACE_INCLUDE_DIRECTORIES>/pugixml.hpp
+                $<TARGET_PROPERTY:openvino::pugixml,INTERFACE_INCLUDE_DIRECTORIES>/pugiconfig.hpp)
         ov_install_static_lib(pugixml-static ${OV_CPACK_COMP_CORE})
     endfunction()
 
@@ -304,7 +324,10 @@ endif()
 
 if(ENABLE_SAMPLES OR ENABLE_TESTS OR ENABLE_INTEL_NPU_INTERNAL)
     add_subdirectory(thirdparty/gflags EXCLUDE_FROM_ALL)
-    ov_developer_package_export_targets(TARGET gflags)
+    ov_developer_package_export_targets(
+        TARGET gflags
+        INSTALL_INCLUDE_DIRECTORIES "${CMAKE_BINARY_DIR}/thirdparty/gflags/gflags/include/gflags"
+        INSTALL_DESTIONATION "developer_package/include/gflags")
 endif()
 
 #
@@ -355,7 +378,7 @@ if(ENABLE_OV_PADDLE_FRONTEND OR ENABLE_OV_ONNX_FRONTEND OR ENABLE_OV_TF_FRONTEND
         # https://github.com/protocolbuffers/protobuf/commit/d61f75ff6db36b4f9c0765f131f8edc2f86310fa
         find_package(Protobuf 5.26.0 QUIET CONFIG)
         if(NOT Protobuf_FOUND)
-            find_package(Protobuf 4.22.0 QUIET CONFIG)
+            find_package(Protobuf 5.26.0 QUIET CONFIG)
         endif()
         if(Protobuf_FOUND)
             # protobuf was found via CONFIG mode, let's save it for later usage in OpenVINOConfig.cmake static build
@@ -365,7 +388,7 @@ if(ENABLE_OV_PADDLE_FRONTEND OR ENABLE_OV_ONNX_FRONTEND OR ENABLE_OV_TF_FRONTEND
                 set(protobuf_config CONFIG)
             endif()
             # otherwise, fallback to existing default
-            find_package(Protobuf 3.20.3 REQUIRED ${protobuf_config})
+            find_package(Protobuf 5.26.0 REQUIRED ${protobuf_config})
         endif()
 
         # with newer protobuf versions (4.22 and newer), we use CONFIG first
@@ -378,15 +401,6 @@ if(ENABLE_OV_PADDLE_FRONTEND OR ENABLE_OV_ONNX_FRONTEND OR ENABLE_OV_TF_FRONTEND
         endif()
     else()
         add_subdirectory(thirdparty/protobuf EXCLUDE_FROM_ALL)
-        # protobuf fails to build with -fsanitize=thread by clang
-        if(ENABLE_THREAD_SANITIZER AND OV_COMPILER_IS_CLANG)
-            foreach(proto_target protoc libprotobuf libprotobuf-lite)
-                if(TARGET ${proto_target})
-                    target_compile_options(${proto_target} PUBLIC -fno-sanitize=thread)
-                    target_link_options(${proto_target} PUBLIC -fno-sanitize=thread)
-                endif()
-            endforeach()
-        endif()
     endif()
 
     # forward additional variables used in the other places
@@ -394,31 +408,31 @@ if(ENABLE_OV_PADDLE_FRONTEND OR ENABLE_OV_ONNX_FRONTEND OR ENABLE_OV_TF_FRONTEND
 
     # set public / interface compile options
     function(_ov_fix_protobuf_warnings target_name)
-        set(link_type PUBLIC)
-        if(ENABLE_SYSTEM_PROTOBUF)
-            set(link_type INTERFACE)
-        endif()
-        if(CMAKE_COMPILER_IS_GNUCXX OR OV_COMPILER_IS_CLANG OR (OV_COMPILER_IS_INTEL_LLVM AND UNIX))
-            get_target_property(original_name ${target_name} ALIASED_TARGET)
-            if(TARGET ${original_name})
-                # during build protobuf's cmake creates aliased targets
-                set(target_name ${original_name})
+        if(TARGET ${target_name})
+            set(link_type PUBLIC)
+            if(ENABLE_SYSTEM_PROTOBUF)
+                set(link_type INTERFACE)
             endif()
-            target_compile_options(${target_name} ${link_type} -Wno-undef)
+            if(CMAKE_COMPILER_IS_GNUCXX OR OV_COMPILER_IS_CLANG OR (OV_COMPILER_IS_INTEL_LLVM AND UNIX))
+                get_target_property(original_name ${target_name} ALIASED_TARGET)
+                if(TARGET ${original_name})
+                    # during build protobuf's cmake creates aliased targets
+                    set(target_name ${original_name})
+                endif()
+                target_compile_options(${target_name} ${link_type} -Wno-undef)
+            endif()
         endif()
     endfunction()
 
     _ov_fix_protobuf_warnings(protobuf::libprotobuf)
-    if(TARGET protobuf::libprotobuf-lite)
-        _ov_fix_protobuf_warnings(protobuf::libprotobuf-lite)
-    endif()
+    _ov_fix_protobuf_warnings(protobuf::libprotobuf-lite)
 endif()
 
 #
 # FlatBuffers
 #
 
-if(ENABLE_OV_TF_LITE_FRONTEND)
+if(ENABLE_OV_TF_LITE_FRONTEND OR ENABLE_INTEL_NPU)
     if(ENABLE_SYSTEM_FLATBUFFERS)
         ov_cross_compile_define_debian_arch()
 
@@ -441,10 +455,26 @@ if(ENABLE_OV_TF_LITE_FRONTEND)
         set(flatbuffers_COMPILER flatbuffers::flatc)
     else()
         add_subdirectory(thirdparty/flatbuffers EXCLUDE_FROM_ALL)
-
-        # used by NPU repo
-        set(flatc_COMMAND flatc)
-        set(flatc_TARGET flatc)
+        if(ENABLE_INTEL_NPU)
+            # NPU plugin requires flatbuffers to be built always
+            add_custom_target(npu_compiler_flatbuffers ALL DEPENDS flatbuffers ${flatbuffers_DEPENDENCY})
+            set(flatbuffers_root "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/flatbuffers/flatbuffers")
+            ov_developer_package_export_targets(TARGET flatbuffers
+                    INSTALL_INCLUDE_DIRECTORIES "${flatbuffers_root}/include/")
+            ov_developer_package_export_targets(TARGET ProjectConfig)
+            install(FILES ${flatbuffers_COMPILER} DESTINATION "developer_package/bin" COMPONENT developer_package EXCLUDE_FROM_ALL)
+            if (CMAKE_CROSSCOMPILING)
+                # NPU compiler requires flatbuffers and flatc defined as target
+                add_executable(flatc ALIAS flatbuffers::flatc)
+            endif()
+        endif()
+        # disable TSan for flatc binary, only used as a build time tool, not in runtime.
+        if(ENABLE_THREAD_SANITIZER AND TARGET flatc)
+            target_compile_options(flatc PRIVATE -fno-sanitize=thread)
+            target_link_options(flatc PRIVATE -fno-sanitize=thread)
+            string(REPLACE "-shared-libsan" "" _flatc_exe_flags "${CMAKE_EXE_LINKER_FLAGS}")
+            set_target_properties(flatc PROPERTIES LINK_FLAGS "${_flatc_exe_flags}")
+        endif()
     endif()
 
     # set additional variables, used in other places of our cmake scripts
@@ -516,11 +546,23 @@ if(ENABLE_SNAPPY_COMPRESSION)
 endif()
 
 #
+# liburing (io_uring)
+#
+
+if(ENABLE_IO_URING AND LINUX)
+    add_subdirectory(thirdparty/liburing EXCLUDE_FROM_ALL)
+    set_property(TARGET openvino_liburing PROPERTY EXPORT_NAME liburing)
+    ov_developer_package_export_targets(TARGET openvino::liburing
+        INSTALL_INCLUDE_DIRECTORIES $<TARGET_PROPERTY:openvino::liburing,INTERFACE_INCLUDE_DIRECTORIES>/)
+    ov_install_static_lib(openvino_liburing ${OV_CPACK_COMP_CORE})
+endif()
+
+#
 # ONNX
 #
 
 if(ENABLE_OV_ONNX_FRONTEND)
-    find_package(ONNX 1.16.2 QUIET COMPONENTS onnx onnx_proto NO_MODULE)
+    find_package(ONNX 1.22.0 QUIET COMPONENTS onnx onnx_proto NO_MODULE)
 
     if(ONNX_FOUND)
         # conan and vcpkg create imported targets 'onnx' and 'onnx_proto'

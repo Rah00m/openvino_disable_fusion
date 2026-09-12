@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -281,6 +281,15 @@ REGISTER_FACTORY(v15, Col2Im);
 
 // ------------------------------ Supported v16 ops ----------------------------- //
 REGISTER_FACTORY(v16, ISTFT);
+REGISTER_FACTORY(v16, SparseFillEmptyRows);
+REGISTER_FACTORY(v16, AvgPool);
+REGISTER_FACTORY(v16, OneHot);
+REGISTER_FACTORY(v16, Identity);
+REGISTER_FACTORY(v16, SegmentMax);
+
+// ------------------------------ Supported v17 ops ----------------------------- //
+REGISTER_FACTORY(v17, ErfInv);
+REGISTER_FACTORY(v17, GroupedMatMul);
 
 // --------------------------- Supported internal ops --------------------------- //
 REGISTER_FACTORY(internal, NonMaxSuppressionIEInternal);
@@ -297,6 +306,7 @@ REGISTER_FACTORY(internal, ReadValue);
 REGISTER_FACTORY(internal, ReadValues);
 REGISTER_FACTORY(internal, Gemm);
 REGISTER_FACTORY(internal, GLU);
+REGISTER_FACTORY(internal, GatedMLP);
 REGISTER_FACTORY(internal, IndirectGemm);
 REGISTER_FACTORY(internal, Convolution);
 REGISTER_FACTORY(internal, Placeholder);
@@ -305,5 +315,21 @@ REGISTER_FACTORY(internal, IndirectSDPA);
 REGISTER_FACTORY(internal, RoPE);
 REGISTER_FACTORY(internal, DynamicQuantize);
 REGISTER_FACTORY(internal, PagedAttentionExtension);
+REGISTER_FACTORY(internal, PA_KV_Reorder);
+REGISTER_FACTORY(internal, PagedGatedDeltaNet);
+REGISTER_FACTORY(internal, PagedSelectiveSSM);
 REGISTER_FACTORY(internal, LoraSubgraph);
 REGISTER_FACTORY(internal, LoraSubgraphFused);
+REGISTER_FACTORY(internal, VLSDPA);
+REGISTER_FACTORY(internal, MOECompressed);
+REGISTER_FACTORY(internal, MoERouterFused);
+REGISTER_FACTORY(internal, GatedDeltaNet);
+REGISTER_FACTORY(internal, SelectiveSSM);
+REGISTER_FACTORY(internal, PagedCausalConv1D);
+REGISTER_FACTORY(internal, GatherMatmul);
+REGISTER_FACTORY(internal, GatherMatmulCompressed);
+REGISTER_FACTORY(internal, GroupedMatMulCompressed);
+REGISTER_FACTORY(internal, Atan2);
+#ifdef ENABLE_MLIR_FOR_GPU
+REGISTER_FACTORY(internal, MLIR);
+#endif

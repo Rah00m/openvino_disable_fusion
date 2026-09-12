@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -27,9 +27,7 @@ static std::vector<std::function<std::shared_ptr<ov::Model>()>> builders = {
 };
 
 std::string OVHeteroSyntheticTest::getTestCaseName(const ::testing::TestParamInfo<OVHeteroSyntheticTestParameters>& obj) {
-    std::vector<PluginParameter> pluginParameters;
-    FunctionParameter functionParamter;
-    std::tie(pluginParameters, functionParamter) = obj.param;
+    const auto& [pluginParameters, functionParamter] = obj.param;
     std::string name = "function=" + functionParamter._function->get_friendly_name();
     name += "_layers=";
     std::size_t num = functionParamter._majorPluginNodeIds.size() - 1;
@@ -62,9 +60,10 @@ void OVHeteroSyntheticTest::SetUp() {
                 core->register_plugin(pluginParameter._location + OV_BUILD_POSTFIX, pluginParameter._name);
             }
         } catch (ov::Exception& ex) {
-            if (std::string{ex.what()}.find("Device with \"" + pluginParameter._name
-                                             + "\"  is already registered in the OpenVINO Runtime")
-                == std::string::npos) {
+            // A previous test case in this suite already registered this library under this name;
+            // the shared Core keeps it, so skip it here and leave it registered on TearDown.
+            if (std::string{ex.what()}.find("is already registered as device \"" + pluginParameter._name + "\"") ==
+                std::string::npos) {
                 throw ex;
             } else {
                 registred = false;

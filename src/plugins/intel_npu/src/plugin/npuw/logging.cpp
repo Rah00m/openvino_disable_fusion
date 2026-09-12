@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -49,6 +49,40 @@ ov::npuw::LogLevel ov::npuw::get_log_level() {
     return log_level;
 }
 
+bool ov::npuw::debug_groups() {
+    static bool do_debug_groups = false;
+#ifdef NPU_PLUGIN_DEVELOPER_BUILD
+    static std::once_flag flag;
+
+    std::call_once(flag, []() {
+        const auto* debug_opt = get_env({"OPENVINO_NPUW_DEBUG_GROUPS"});
+        if (!debug_opt) {
+            return;
+        }
+        const std::string debug_str(debug_opt);
+        do_debug_groups = (debug_str == "YES" || debug_str == "ON" || debug_str == "1");
+    });
+#endif
+    return do_debug_groups;
+}
+
+bool ov::npuw::profiling_enabled() {
+    static bool do_profiling = false;
+#ifdef NPU_PLUGIN_DEVELOPER_BUILD
+    static std::once_flag flag;
+
+    std::call_once(flag, []() {
+        const auto* prof_opt = get_env({"OPENVINO_NPUW_PROF"});
+        if (!prof_opt) {
+            return;
+        }
+        const std::string prof_str(prof_opt);
+        do_profiling = (prof_str == "YES" || prof_str == "ON" || prof_str == "1");
+    });
+#endif
+    return do_profiling;
+}
+
 thread_local int ov::npuw::__logging_indent__::this_indent = 0;
 
 ov::npuw::__logging_indent__::__logging_indent__() {
@@ -71,6 +105,8 @@ void ov::npuw::dump_tensor(const ov::SoPtr<ov::ITensor>& input, const std::strin
     } else {
         // Create temporary tensor and copy data in. Dumping is never fast, anyway
         tensor = ov::get_tensor_impl(ov::Tensor(input->get_element_type(), input->get_shape()));
+        NPUW_ASSERT(tensor._ptr &&
+                    "temporary dump tensor has null implementation — element type or shape may be invalid");
         input->copy_to(tensor._ptr);
     }
     NPUW_ASSERT(tensor);
@@ -93,7 +129,7 @@ void ov::npuw::dump_tensor(const ov::SoPtr<ov::ITensor>& input, const std::strin
     }
 }
 
-static void dump_file_list(const std::string list_path, const std::vector<std::string>& base_names) {
+static void dump_file_list(const std::string& list_path, const std::vector<std::string>& base_names) {
     std::ofstream list_file(list_path);
 
     if (base_names.empty()) {
@@ -107,7 +143,7 @@ static void dump_file_list(const std::string list_path, const std::vector<std::s
     }
 }
 
-void ov::npuw::dump_input_list(const std::string base_name, const std::vector<std::string>& base_input_names) {
+void ov::npuw::dump_input_list(const std::string& base_name, const std::vector<std::string>& base_input_names) {
     // dump a list of input/output files for sit.py's --inputs argument
     // note the file has no newline to allow use like
     //
@@ -117,7 +153,7 @@ void ov::npuw::dump_input_list(const std::string base_name, const std::vector<st
     LOG_INFO("Wrote input list " << ilist_path << "...");
 }
 
-void ov::npuw::dump_output_list(const std::string base_name, const std::vector<std::string>& base_output_names) {
+void ov::npuw::dump_output_list(const std::string& base_name, const std::vector<std::string>& base_output_names) {
     const auto olist_path = base_name + "_olist.txt";
     dump_file_list(olist_path, base_output_names);
     LOG_INFO("Wrote output list " << olist_path << "...");

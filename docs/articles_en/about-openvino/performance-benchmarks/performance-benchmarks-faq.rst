@@ -51,49 +51,45 @@ Performance Information F.A.Q.
         - DeepSeek, HF
         - Auto regressive language
         - 128K
-      * - `DeepSeek-R1-Distill-Qwen-1.5B <https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B>`__
-        - DeepSeek, HF
-        - Auto regressive language
-        - 128K
-      * - `GLM4-9B-chat <https://huggingface.co/THUDM/glm-4-9b-chat/tree/main>`__
-        - THUDM
-        - Transformer
-        - 128K
-      * - `Gemma-2-9B-it <https://huggingface.co/google/gemma-2-9b-it>`__
+      * - `GPT-OSS-20B <https://huggingface.co/openai/gpt-oss-20b>`__
         - Hugginface
-        - Text-To-Text Decoder-only
-        - 8K
-      * - `Llama-2-7b-chat <https://www.llama.com/>`__
-        - Meta AI
-        - Auto regressive language
-        - 4K
+        - Reasoning, agentic and developer use cases.
+        - 128K
+      * - `GPT-OSS-120B <https://huggingface.co/openai/gpt-oss-120b>`__
+        - Hugginface
+        - Reasoning, agentic and developer use cases.
+        - 128K
       * - `Llama-3.2-3B-Instruct <https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct>`__
         - Meta AI
         - Auto regressive language
         - 128K
-      * - `Mistral-7b-Instruct-V0.3 <https://huggingface.co/mistralai/Mistral-7B-v0.3>`__
+      * - `MiniCPM-v-2_6 <https://huggingface.co/openbmb/MiniCPM-V-2_6>`__
+        - OpenBMB
+        - Multimodal, image-text to text
+        - 32K
+      * - `Mistral-7B-Instruct-V0.3 <https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3>`__
         - Mistral AI
         - Auto regressive language
         - 32K
-      * - `Phi3-4k-mini-Instruct <https://huggingface.co/microsoft/Phi-3-mini-4k-instruct>`__
-        - Huggingface
-        - Auto regressive language
-        - 4096
       * - `Phi4-mini-Instruct <https://huggingface.co/microsoft/Phi-4-mini-instruct>`__
-        - Huggingface
+        - Hugginface
         - Auto regressive language
         - 4096
-      * - `Qwen-2-VL-7B-instruct <https://huggingface.co/Qwen/Qwen2-VL-7B-instruct>`__
+      * - `Qwen-3.5-9B <https://huggingface.co/Qwen/Qwen3.5-9B>`__
         - Huggingface
-        - Auto regressive language
-        - 128K
-      * - `Qwen-2.5-VL-3B-Instruct <https://huggingface.co/Qwen/Qwen2.5-VL-3B-Instruct>`__
+        - Multimodal, Gated Delta Networks, Sparse MoE
+        - 256K
+      * - `Qwen-3.6-27B <https://huggingface.co/Qwen/Qwen3.6-27B>`__
         - Huggingface
-        - Auto regressive language
-        - 32K
-      * - `Qwen-2.5-1.5B-Instruct <https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct>`__
+        - Causal Language with Vision Encoder
+        - 256K (up to 1M)
+      * - `Qwen-3.6-35B-A3B <https://huggingface.co/Qwen/Qwen3.6-35B-A3b>`__
         - Huggingface
-        - Auto regressive language
+        - Causal Language with Vision Encoder, MoE, 256 experts
+        - 256K (up to 1M)
+      * - `Qwen-3-30B-A3B <https://huggingface.co/Qwen/Qwen3-30B-A3B>`__
+        - Huggingface
+        - Mix of Experts. Reasoning, agentic, multi-lingual
         - 32K
       * - `Stable-Diffusion-V1-5 <https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5>`__
         - Hugginface
@@ -103,6 +99,10 @@ Performance Information F.A.Q.
         - Hugginface
         - Latent Adversarial Diffusion Distillation Model
         - 256
+      * - `LTX-VIDEO <https://huggingface.co/Lightricks/LTX-Video>`__
+        - Hugginface
+        - DiT based video generation. Diffusion Transformer.
+        - up to 300
       * - `bert-base-cased <https://github.com/PaddlePaddle/PaddleNLP/tree/v2.1.1>`__
         - BERT
         - question / answer
@@ -125,6 +125,10 @@ Performance Information F.A.Q.
         - 1200x1200
       * - `yolov11 <https://github.com/ultralytics/ultralytics>`__
         - Yolov11
+        - object detection
+        - 640x640
+      * - `yolov26n <https://huggingface.co/openvision/yolo26-n>`__
+        - Yolov26 Nano
         - object detection
         - 640x640
 

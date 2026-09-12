@@ -1,17 +1,21 @@
-// Copyright (C) 2022 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #pragma once
 
-#include <cpu/x64/xbyak/xbyak.h>
-
 #include <cassert>
-#include <common/utils.hpp>
-#include <cpu/x64/cpu_isa_traits.hpp>
 #include <cstddef>
 #include <vector>
-#ifndef OPENVINO_ARCH_ARM64
+
+#include "openvino/core/visibility.hpp"
+#include "utils/cpu_utils.hpp"
+#if defined(OPENVINO_ARCH_X86_64)
+#    include <xbyak/xbyak.h>
+
+#    include <common/utils.hpp>
+#    include <cpu/x64/cpu_isa_traits.hpp>
+
 #    include "cpu/x64/jit_generator.hpp"
 #endif
 
@@ -38,7 +42,7 @@ struct jit_dft_args {
     size_t output_end;
 };
 
-#ifndef OPENVINO_ARCH_ARM64
+#if defined(OPENVINO_ARCH_X86_64)
 struct jit_dft_kernel {
     jit_dft_kernel(bool is_inverse, enum dft_type type) : is_inverse_(is_inverse), kernel_type_(type) {}
 
@@ -59,13 +63,13 @@ struct jit_dft_kernel {
 };
 
 template <dnnl::impl::cpu::x64::cpu_isa_t isa>
-struct jit_dft_kernel_f32 : public jit_dft_kernel, public dnnl::impl::cpu::x64::jit_generator {
+struct jit_dft_kernel_f32 : public jit_dft_kernel, public dnnl::impl::cpu::x64::jit_generator_t {
 public:
     DECLARE_CPU_JIT_AUX_FUNCTIONS(jit_dft_kernel_f32)
 
     jit_dft_kernel_f32(bool is_inverse, enum dft_type type)
         : jit_dft_kernel(is_inverse, type),
-          jit_generator(jit_name()) {
+          jit_generator_t(jit_name()) {
         constexpr int simd_size = vlen / type_size;
         perm_low_values.reserve(simd_size);
         perm_high_values.reserve(simd_size);
@@ -78,8 +82,8 @@ public:
     }
 
     void create_ker() override {
-        jit_generator::create_kernel();
-        ker_ = (decltype(ker_))jit_ker();
+        jit_generator_t::create_kernel();
+        ker_ = jit_kernel_cast<decltype(ker_)>(jit_ker());
     }
 
     void generate() override;
@@ -94,7 +98,7 @@ private:
     void interleave_and_store(const Vmm& real, const Vmm& imag, const Xbyak::RegExp& reg_exp, const Vmm& tmp);
 
     static constexpr int type_size = sizeof(float);
-    static constexpr int vlen = dnnl::impl::cpu::x64::cpu_isa_traits<isa>::vlen;
+    static constexpr int vlen = dnnl::impl::cpu::x64::cpu_isa_traits_t<isa>::vlen;
 
     Xbyak::Reg8 is_signal_size_even = al;
     Xbyak::Reg64 input_ptr = rbx;

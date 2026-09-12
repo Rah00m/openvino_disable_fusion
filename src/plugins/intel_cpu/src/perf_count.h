@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -22,6 +22,14 @@ public:
 
     [[nodiscard]] std::chrono::duration<double, std::milli> duration() const {
         return _finish - _start;
+    }
+
+    [[nodiscard]] std::chrono::high_resolution_clock::time_point start() const {
+        return _start;
+    }
+
+    [[nodiscard]] std::chrono::high_resolution_clock::time_point finish() const {
+        return _finish;
     }
 
     [[nodiscard]] uint64_t avg() const {

@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 #pragma once
@@ -31,7 +31,7 @@ public:
 
         if (impl_param.has_fused_primitives()) {
             output_type = impl_param.get_output_element_type();
-            for (auto& desc : impl_param.fused_desc) {
+            for (const auto& desc : impl_param.fused_desc) {
                 if (desc.is_type<reorder>()) {
                     out_format = desc.output_layout.format;
                 }

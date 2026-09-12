@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -24,7 +24,8 @@ extern ov::OutputVector dequantize_linear(const ov::Output<ov::Node>& x,
                                           const ov::Output<ov::Node>& scale,
                                           const std::shared_ptr<ov::Node>& zero_point,
                                           int64_t axis,
-                                          const Node& node);
+                                          const Node& node,
+                                          const ov::element::Type& precision = ov::element::dynamic);
 }  // namespace detail
 }  // namespace opset_13
 namespace opset_1 {

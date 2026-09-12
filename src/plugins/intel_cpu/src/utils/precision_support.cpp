@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -7,12 +7,11 @@
 #if defined(OPENVINO_ARCH_X86_64)
 #    include "cpu/x64/cpu_isa_traits.hpp"
 #endif
+#if defined(OPENVINO_ARCH_ARM) || defined(OPENVINO_ARCH_ARM64)
+#    include "openvino/runtime/system_conf.hpp"
+#endif
 #include "openvino/core/type/element_type.hpp"
 #include "openvino/core/visibility.hpp"
-
-#if defined(OV_CPU_WITH_ACL)
-#    include "arm_compute/core/CPP/CPPTypes.h"
-#endif
 
 namespace ov::intel_cpu {
 
@@ -20,8 +19,8 @@ static bool hasFP16HardwareSupport() {
 #if defined(OPENVINO_ARCH_X86_64)
     return dnnl::impl::cpu::x64::mayiuse(dnnl::impl::cpu::x64::avx512_core_fp16) ||
            dnnl::impl::cpu::x64::mayiuse(dnnl::impl::cpu::x64::avx2_vnni_2);
-#elif defined(OV_CPU_WITH_ACL)
-    return arm_compute::CPUInfo::get().has_fp16();
+#elif defined(OPENVINO_ARCH_ARM) || defined(OPENVINO_ARCH_ARM64)
+    return with_cpu_neon_fp16();
 #else
     return false;
 #endif
@@ -55,14 +54,6 @@ ov::element::Type defaultFloatPrecision() {
         return ov::element::bf16;
     }
     return ov::element::f32;
-}
-
-bool hasIntDotProductSupport() {
-#if defined(OV_CPU_WITH_ACL)
-    return arm_compute::CPUInfo::get().has_dotprod();
-#else
-    return false;
-#endif
 }
 
 }  // namespace ov::intel_cpu

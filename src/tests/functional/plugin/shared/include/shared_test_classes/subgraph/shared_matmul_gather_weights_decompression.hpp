@@ -1,11 +1,12 @@
-// Copyright (C) 2023-2024 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #pragma once
 
 #include "shared_test_classes/base/ov_subgraph.hpp"
-#include "shared_test_classes/subgraph/weights_decompression_builders.hpp"
+#include "shared_test_classes/subgraph/weights_decompression_params.hpp"
+#include "common_test_utils/subgraph_builders/weights_decompression_builders.hpp"
 
 namespace ov {
 namespace test {
@@ -30,17 +31,18 @@ namespace test {
  *               Matmul(transpose_b = true)             Gather
 */
 
-using SharedMatmulAndGatherWeightsDecompressionParams = std::tuple<std::string,                 // target device
+using SharedMatmulAndGatherWeightsDecompressionParams = std::tuple<std::string,                        // target device
                                                                    GatherDecompressionShapeParams,
-                                                                   ElementType,                 // weights precision
-                                                                   ElementType,                 // decompression precision
-                                                                   bool,                        // decompression subtract
-                                                                   bool>;                       // use matmul decompression implementation
+                                                                   ElementType,                        // weights precision
+                                                                   ElementType,                        // decompression precision
+                                                                   ov::test::utils::DecompressionType, // multiply type
+                                                                   ov::test::utils::DecompressionType, // subtract type
+                                                                   bool>;                              // use matmul decompression implementation
 
 class SharedMatmulAndGatherWeightsDecompression : public testing::WithParamInterface<SharedMatmulAndGatherWeightsDecompressionParams>,
                                                   virtual public SubgraphBaseTest {
 public:
-    static std::string getTestCaseName(testing::TestParamInfo<SharedMatmulAndGatherWeightsDecompressionParams> obj);
+    static std::string getTestCaseName(const testing::TestParamInfo<SharedMatmulAndGatherWeightsDecompressionParams>& obj);
 
 protected:
     std::shared_ptr<ov::Model> initSubgraph(const ov::Shape& data_shape,
@@ -50,7 +52,8 @@ protected:
                                             const int group_size,
                                             const ov::element::Type data_precision,
                                             const ov::element::Type output_precision,
-                                            const bool add_subtract);
+                                            const ov::test::utils::DecompressionType decompression_multiply_type,
+                                            const ov::test::utils::DecompressionType decompression_subtract_type);
     void SetUp() override;
     void check_results();
 };

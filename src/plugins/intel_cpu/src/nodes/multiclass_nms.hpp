@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -65,12 +65,12 @@ private:
 
     int m_nmsRealTopk = 0;
     int m_nmsTopK = 0;
-    float m_iouThreshold = 0.0f;
-    float m_scoreThreshold = 0.0f;
+    float m_iouThreshold = 0.0F;
+    float m_scoreThreshold = 0.0F;
 
     int32_t m_backgroundClass = 0;
     int32_t m_keepTopK = 0;
-    float m_nmsEta = 0.0f;
+    float m_nmsEta = 0.0F;
     bool m_normalized = true;
 
     bool m_outStaticShape = false;
@@ -123,8 +123,8 @@ private:
                        const VectorDims& roisnumStrides,
                        bool shared);
 
-    static const float* slice_class(int batch_idx,
-                                    int class_idx,
+    static const float* slice_class(size_t batch_idx,
+                                    size_t class_idx,
                                     const float* dataPtr,
                                     const VectorDims& dataStrides,
                                     bool is_boxes,

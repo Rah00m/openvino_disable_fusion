@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -30,7 +30,7 @@ struct depth_to_space_fuse_params : fuse_params {
 class DepthToSpaceKernelBase : public KernelBaseOpenCL {
 public:
     using KernelBaseOpenCL::KernelBaseOpenCL;
-    virtual ~DepthToSpaceKernelBase() {}
+    ~DepthToSpaceKernelBase() override = default;
 
     struct DispatchData : public CommonDispatchData {
     };

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -11,7 +11,7 @@ class ResampleKernelOnnx : public ResampleKernelBase {
 public:
     using Parent = ResampleKernelBase;
     ResampleKernelOnnx() : ResampleKernelBase("resample_onnx") {}
-    virtual ~ResampleKernelOnnx() = default;
+    ~ResampleKernelOnnx() override = default;
 
     KernelsData GetKernelsData(const Params& params) const override;
     KernelsPriority GetKernelsPriority(const Params& params) const override;

@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -248,7 +248,7 @@ void save(BinaryOutputBuffer& ob) const override {
 
     static std::unique_ptr<primitive_impl> create(const gru_seq_node& arg, const kernel_impl_params& impl_params) {
         auto& engine = impl_params.prog->get_engine();
-        auto& config = impl_params.prog->get_config();
+        const auto& config = impl_params.prog->get_config();
         auto attr = impl_params.attrs_onednn;
         auto direction = arg.direction();
         auto prim_desc = get_gru_primitive_descriptor(impl_params, engine, *attr, direction);

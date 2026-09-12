@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -82,7 +82,7 @@ public:
         auto outputs = network->execute();
 
         auto output = outputs.at("tile").get_memory();
-        cldnn::mem_lock<float> output_ptr(output, get_test_stream());
+        cldnn::mem_lock<float, mem_lock_type::read> output_ptr(output, get_test_stream());
         cldnn::mem_lock<float> output_ref_ptr(output_ref, get_test_stream());
 
         for (unsigned int i = 0; i < output_ref->count(); ++i) {
@@ -118,7 +118,7 @@ public:
         auto outputs = network->execute();
 
         auto output = outputs.at("tile").get_memory();
-        cldnn::mem_lock<float> output_ptr(output, get_test_stream());
+        cldnn::mem_lock<float, mem_lock_type::read> output_ptr(output, get_test_stream());
         cldnn::mem_lock<float> output_ref_ptr(output_ref, get_test_stream());
 
         for (unsigned int i = 0; i < output_ref->count(); ++i) {
@@ -158,7 +158,7 @@ public:
         auto outputs = network->execute();
 
         auto output = outputs.at("tile").get_memory();
-        cldnn::mem_lock<float> output_ptr(output, get_test_stream());
+        cldnn::mem_lock<float, mem_lock_type::read> output_ptr(output, get_test_stream());
         cldnn::mem_lock<float> output_ref_ptr(output_ref, get_test_stream());
 
         for (unsigned int i = 0; i < output_ref->count(); ++i) {
@@ -194,7 +194,7 @@ public:
         auto outputs = network->execute();
 
         auto output = outputs.at("tile").get_memory();
-        cldnn::mem_lock<float> output_ptr(output, get_test_stream());
+        cldnn::mem_lock<float, mem_lock_type::read> output_ptr(output, get_test_stream());
         cldnn::mem_lock<float> output_ref_ptr(output_ref, get_test_stream());
 
         for (unsigned int i = 0; i < output_ref->count(); ++i) {
@@ -226,7 +226,7 @@ public:
         auto outputs = network->execute();
 
         auto output = outputs.at("tile").get_memory();
-        cldnn::mem_lock<float> output_ptr(output, get_test_stream());
+        cldnn::mem_lock<float, mem_lock_type::read> output_ptr(output, get_test_stream());
         cldnn::mem_lock<float> output_ref_ptr(output_ref, get_test_stream());
 
         for (unsigned int i = 0; i < output_ref->count(); ++i) {
@@ -267,7 +267,7 @@ public:
         auto outputs = network->execute();
 
         auto output = outputs.at("tile").get_memory();
-        cldnn::mem_lock<float> output_ptr(output, get_test_stream());
+        cldnn::mem_lock<float, mem_lock_type::read> output_ptr(output, get_test_stream());
         cldnn::mem_lock<float> output_ref_ptr(output_ref, get_test_stream());
 
         for (unsigned int i = 0; i < output_ref->count(); ++i) {
@@ -307,7 +307,7 @@ public:
         auto outputs = network.execute();
 
         auto output = outputs.at("tile").get_memory();
-        cldnn::mem_lock<float> output_ptr(output, get_test_stream());
+        cldnn::mem_lock<float, mem_lock_type::read> output_ptr(output, get_test_stream());
 
         std::vector<float> ref_data = { 1.f, 0.f,
                                         5.f, 1.5f,
@@ -414,7 +414,7 @@ TEST(tile_cpu_imp_test, disable_usm) {
     auto outputs = network->execute();
 
     auto output = outputs.at("tile").get_memory();
-    cldnn::mem_lock<float> output_ptr(output, get_test_stream());
+    cldnn::mem_lock<float, mem_lock_type::read> output_ptr(output, get_test_stream());
     cldnn::mem_lock<float> output_ref_ptr(output_ref, get_test_stream());
 
     for (unsigned int i = 0; i < output_ref->count(); ++i) {
@@ -718,10 +718,8 @@ struct PrintToStringParamName {
     template<class T>
     std::string operator()(const testing::TestParamInfo<ParamsWithLayout<T> > &param) {
         std::stringstream buf;
-        Params<T> p;
-        format::type plain_layout;
-        format::type target_layout;
-        std::tie(p, plain_layout, target_layout) = param.param;
+
+        const auto& [p, plain_layout, target_layout] = param.param;
         buf << " input tensor " << p.input_tensor.to_string()
             << " output tensor " << p.output_tensor.to_string()
             << " plain layout " << plain_layout
@@ -737,11 +735,8 @@ struct tile_test
 public:
     void test(bool is_caching_test) {
         const auto data_type = ov::element::from<T>();
-        Params<T> params;
-        format::type plain_layout;
-        format::type target_layout;
 
-        std::tie(params, plain_layout, target_layout) = this->GetParam();
+        const auto& [params, plain_layout, target_layout] = this->GetParam();
 
         const bool need_reorder = target_layout != plain_layout;
 
@@ -779,7 +774,7 @@ public:
         auto result = network->execute();
 
         auto out_mem = result.at(result_id).get_memory();
-        cldnn::mem_lock<T> out_ptr(out_mem, get_test_stream());
+        cldnn::mem_lock<T, mem_lock_type::read> out_ptr(out_mem, get_test_stream());
 
         ASSERT_EQ(params.output_tensor.count(), out_ptr.size());
 
@@ -791,12 +786,17 @@ public:
 
 using tile_test_f32 = tile_test<float>;
 using tile_test_f16 = tile_test<ov::float16>;
+using tile_test_bf16 = tile_test<ov::bfloat16>;
 
 TEST_P(tile_test_f32, test_case) {
     ASSERT_NO_FATAL_FAILURE(test(false));
 }
 
 TEST_P(tile_test_f16, test_case) {
+    ASSERT_NO_FATAL_FAILURE(test(false));
+}
+
+TEST_P(tile_test_bf16, test_case) {
     ASSERT_NO_FATAL_FAILURE(test(false));
 }
 
@@ -816,6 +816,14 @@ INSTANTIATE_TEST_SUITE_P(tile_gpu_2D,
                              ::testing::ValuesIn(layouts_2d)),
                          PrintToStringParamName());
 
+INSTANTIATE_TEST_SUITE_P(tile_gpu_2D,
+                         tile_test_bf16,
+                         ::testing::Combine(
+                             ::testing::ValuesIn(generateTileParams2D<ov::bfloat16>()),
+                             ::testing::Values(format::bfyx),
+                             ::testing::ValuesIn(layouts_2d)),
+                         PrintToStringParamName());
+
 INSTANTIATE_TEST_SUITE_P(tile_gpu_3D,
                          tile_test_f32,
                          ::testing::Combine(
@@ -828,6 +836,14 @@ INSTANTIATE_TEST_SUITE_P(tile_gpu_3D,
                          tile_test_f16,
                          ::testing::Combine(
                              ::testing::ValuesIn(generateTileParams3D<ov::float16>()),
+                             ::testing::Values(format::bfzyx),
+                             ::testing::ValuesIn(layouts_3d)),
+                         PrintToStringParamName());
+
+INSTANTIATE_TEST_SUITE_P(tile_gpu_3D,
+                         tile_test_bf16,
+                         ::testing::Combine(
+                             ::testing::ValuesIn(generateTileParams3D<ov::bfloat16>()),
                              ::testing::Values(format::bfzyx),
                              ::testing::ValuesIn(layouts_3d)),
                          PrintToStringParamName());
@@ -858,6 +874,10 @@ TEST_P(tile_test_f32, test_case_cached) {
 }
 
 TEST_P(tile_test_f16, test_case_cached) {
+    ASSERT_NO_FATAL_FAILURE(test(true));
+}
+
+TEST_P(tile_test_bf16, test_case_cached) {
     ASSERT_NO_FATAL_FAILURE(test(true));
 }
 #endif

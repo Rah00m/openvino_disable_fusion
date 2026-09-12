@@ -1,4 +1,4 @@
-// Copyright (C) 2024 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -22,6 +22,7 @@ class CPURuntimeConfig : public ov::snippets::RuntimeConfig {
 public:
     OPENVINO_RTTI("CPURuntimeConfig", "0", ov::snippets::RuntimeConfig)
     CPURuntimeConfig() = default;
+    CPURuntimeConfig(const CPURuntimeConfig& other);
 
 #ifdef SNIPPETS_DEBUG_CAPS
     std::string to_string() const override;
@@ -40,7 +41,8 @@ public:
 
 class CPURuntimeConfigurator : public ov::snippets::RuntimeConfigurator {
 public:
-    CPURuntimeConfigurator(ov::intel_cpu::MultiCacheWeakPtr cache);
+    explicit CPURuntimeConfigurator(ov::intel_cpu::MultiCacheWeakPtr cache);
+    CPURuntimeConfigurator(const CPURuntimeConfigurator& other);
 
     /**
      * @brief Calculate Loop parameters of Loop emitters and update these values in CPURuntimeConfig

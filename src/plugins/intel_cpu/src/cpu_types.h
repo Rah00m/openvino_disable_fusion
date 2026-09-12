@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -114,6 +114,7 @@ enum class Type : uint8_t {
     ExperimentalDetectronGenerateProposalsSingleImage,
     ExtractImagePatches,
     GenerateProposals,
+    Identity,
     Inverse,
     NonMaxSuppression,
     MatrixNms,
@@ -129,6 +130,7 @@ enum class Type : uint8_t {
     Ngram,
     ScaledDotProductAttention,
     PagedAttention,
+    PaKVReorder,
     RoPE,
     CausalMaskPreprocess,
     LLMMLP,
@@ -136,7 +138,13 @@ enum class Type : uint8_t {
     RMS,
     SearchSorted,
     SegmentMax,
-    LoRA
+    LoRA,
+    GatherMatmul,
+    GatedDeltaNet,
+    PagedGatedDeltaNet,
+    SelectiveSSM,
+    PagedSelectiveSSM,
+    PagedCausalConv1D
 };
 
 enum class Algorithm : uint8_t {
@@ -208,6 +216,7 @@ enum class Algorithm : uint8_t {
     EltwiseRoundHalfAwayFromZero,
     EltwiseErf,
     EltwiseSoftSign,
+    EltwiseErfInv,
     EltwiseLog,
     EltwiseBitwiseAnd,
     EltwiseBitwiseNot,
@@ -221,6 +230,10 @@ enum class Algorithm : uint8_t {
     FullyConnectedCompressed,
     FullyConnectedQuantized,
     FullyConnectedQuantizedLegacy,
+
+    // GatherMatmul algorithms
+    GatherMatmulDefault,
+    GatherMatmulCompressed,
 
     // FakeQuantize algorithms
     FQCommon,
@@ -292,6 +305,10 @@ extern const ov::intel_cpu::caseless_unordered_map<std::string, Type> type_to_na
 Type TypeFromName(const std::string& type);
 
 std::string NameFromType(Type type);
+inline std::ostream& operator<<(std::ostream& os, const Type& type) {
+    os << NameFromType(type);
+    return os;
+}
 
 std::string algToString(Algorithm alg);
 

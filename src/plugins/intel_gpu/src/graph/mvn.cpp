@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -28,8 +28,8 @@ std::string mvn_inst::to_string(mvn_node const& node) {
     auto desc = node.get_primitive();
     auto epsilon = desc->epsilon;
     auto axes = desc->reduction_axes;
-    auto normalize_variance = desc->normalize_variance ? "true" : "false";
-    auto eps_inside_sqrt = desc->eps_inside_sqrt ? "true" : "false";
+    const auto* normalize_variance = desc->normalize_variance ? "true" : "false";
+    const auto* eps_inside_sqrt = desc->eps_inside_sqrt ? "true" : "false";
     auto& input = node.input();
 
     std::stringstream primitive_description;

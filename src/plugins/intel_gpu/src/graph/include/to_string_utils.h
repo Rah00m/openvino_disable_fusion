@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -79,6 +79,7 @@ inline std::string activation_type_to_str(activation_func activation) {
     case activation_func::gelu_tanh: return "gelu_tanh";
     case activation_func::round_half_to_even: return "round_half_to_even";
     case activation_func::round_half_away_from_zero: return "round_half_away_from_zero";
+    case activation_func::erfinv: return "erfinv";
     default: return "unknown activation";
     }
 }
@@ -97,6 +98,7 @@ inline std::string onednn_post_op_type_to_str(onednn_post_op_type type) {
     case onednn_post_op_type::binary_max: return "binary_max";
     case onednn_post_op_type::binary_min: return "binary_min";
     case onednn_post_op_type::binary_relu: return "binary_relu";
+    case onednn_post_op_type::binary_div: return "binary_div";
     case onednn_post_op_type::scale: return "scale";
     case onednn_post_op_type::sum: return "sum";
     case onednn_post_op_type::optimized: return "optimized";

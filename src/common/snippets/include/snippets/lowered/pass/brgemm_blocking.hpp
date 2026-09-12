@@ -1,4 +1,4 @@
-// Copyright (C) 2024 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -32,8 +32,6 @@ namespace ov::snippets::lowered::pass {
 class BrgemmBlockingBase {
 public:
     virtual ~BrgemmBlockingBase() = default;
-    static snippets::lowered::SpecificIterationHandlers get_default_blocking_loop_handlers(size_t work_amount,
-                                                                                           size_t block_size);
 
 protected:
     /**
@@ -107,7 +105,7 @@ public:
 
     bool run(snippets::lowered::LinearIR& linear_ir,
              snippets::lowered::LinearIR::constExprIt begin,
-             snippets::lowered::LinearIR::constExprIt end) override final {  // NOLINT
+             snippets::lowered::LinearIR::constExprIt end) override final {
         OV_ITT_SCOPED_TASK(ov::pass::itt::domains::SnippetsTransform, "Snippets::BrgemmBlocking")
         const auto& loop_manager = linear_ir.get_loop_manager();
         bool modified = false;

@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -49,11 +49,7 @@ struct GroupNormalizationBfyxOpt : public GroupNormalizationBase {
             return false;
         }
 
-        if (!fused_ops_are_one_of<eltwise, activation, reorder>(node.get_fused_primitives())) {
-            return false;
-        }
-
-        return true;
+        return fused_ops_are_one_of<eltwise, activation, reorder>(node.get_fused_primitives());
     }
 };
 

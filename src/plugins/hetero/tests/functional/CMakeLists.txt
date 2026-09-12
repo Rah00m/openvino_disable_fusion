@@ -1,4 +1,4 @@
-# Copyright (C) 2018-2025 Intel Corporation
+# Copyright (C) 2018-2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -21,6 +21,10 @@ ov_add_test_target(
         ADD_CLANG_FORMAT
         LABELS
             OV HETERO
+)
+
+target_sources(${TARGET_NAME} PRIVATE
+    $<TARGET_PROPERTY:openvino_hetero_plugin,SOURCE_DIR>/src/blob_serialization.cpp
 )
 
 if(ENABLE_INTEL_CPU)

@@ -1,4 +1,4 @@
-// Copyright (C) 2023 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -6,7 +6,7 @@
 
 #include "shared_test_classes/base/ov_behavior_test_utils.hpp"
 #include "openvino/runtime/properties.hpp"
-#include "openvino/util/common_util.hpp"
+#include "openvino/util/container_util.hpp"
 
 #include "common_test_utils/test_assertions.hpp"
 #include "common_test_utils/file_utils.hpp"

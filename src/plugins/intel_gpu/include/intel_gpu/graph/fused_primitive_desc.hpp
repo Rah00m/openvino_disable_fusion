@@ -1,4 +1,4 @@
-// Copyright (C) 2022 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -50,16 +50,19 @@ struct fused_primitive_desc {
     template<typename T>
     std::shared_ptr<T> get_typed_fuse_params() const {
         auto p = std::dynamic_pointer_cast<T>(f_param);
-        if (!p)
+        if (!p) {
             throw std::runtime_error("Invalid dynamic cast of fused parameters!");
+        }
         return p;
     }
 
     bool operator==(const fused_primitive_desc& rhs) const {
-        if (total_num_deps != rhs.total_num_deps)
+        if (total_num_deps != rhs.total_num_deps) {
             return false;
-        if (outer_dep_start_idx != rhs.outer_dep_start_idx)
+        }
+        if (outer_dep_start_idx != rhs.outer_dep_start_idx) {
             return false;
+        }
 
         return *desc == *rhs.desc;
     }
@@ -119,6 +122,7 @@ enum class onednn_post_op_type : uint32_t {
     binary_max,
     binary_min,
     binary_relu,
+    binary_div,
     scale,
     sum,
     optimized,
@@ -142,6 +146,7 @@ static inline std::ostream& operator<< (std::ostream& os, onednn_post_op_type& t
         case onednn_post_op_type::binary_max: os << "binary_max"; break;
         case onednn_post_op_type::binary_min: os << "binary_min"; break;
         case onednn_post_op_type::binary_relu: os << "binary_relu"; break;
+        case onednn_post_op_type::binary_div: os << "binary_div"; break;
         case onednn_post_op_type::scale: os << "scale"; break;
         case onednn_post_op_type::sum: os << "sum"; break;
         case onednn_post_op_type::optimized: os << "optimized"; break;

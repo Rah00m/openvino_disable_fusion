@@ -1,9 +1,11 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
+//
 
 #pragma once
 #include <napi.h>
 
+#include <filesystem>
 #include <unordered_set>
 #include <variant>
 
@@ -70,6 +72,10 @@ template <>
 ov::preprocess::ResizeAlgorithm js_to_cpp<ov::preprocess::ResizeAlgorithm>(const Napi::CallbackInfo& info,
                                                                            const size_t idx);
 
+/** @brief  A template specialization for TargetType std::filesystem::path */
+template <>
+std::filesystem::path js_to_cpp<std::filesystem::path>(const Napi::CallbackInfo& info, const size_t idx);
+
 /** @brief  A template specialization for TargetType ov::Any */
 template <>
 ov::Any js_to_cpp<ov::Any>(const Napi::Env& env, const Napi::Value& value);
@@ -119,10 +125,22 @@ Napi::Array cpp_to_js<ov::Dimension, Napi::Array>(const Napi::CallbackInfo& info
  */
 Napi::Object cpp_to_js(const Napi::Env& env, std::shared_ptr<ov::Model> model);
 
+/**
+ * @brief Creates JavaScript Node and wraps ov::Node inside of it.
+ * @return Javascript Node as Napi::Object. (Not NodeWrap object)
+ */
+Napi::Object cpp_to_js(const Napi::Env& env, std::shared_ptr<ov::Node> node);
+
 template <>
 Napi::Boolean cpp_to_js<bool, Napi::Boolean>(const Napi::CallbackInfo& info, const bool value);
 
 Napi::Object cpp_to_js(const Napi::Env& env, const ov::CompiledModel& compiled_model);
+
+/**
+ * @brief Creates a JavaScript object with the `buildNumber` and `description` of an ov::Version.
+ * The object also exposes a non-enumerable `toString()` returning a formatted, multi-line string.
+ */
+Napi::Object cpp_to_js(const Napi::Env& env, const ov::Version& version);
 
 /** @brief Takes Napi::Value and parse Napi::Array or Napi::Object to ov::TensorVector. */
 ov::TensorVector parse_input_data(const Napi::Value& input);
@@ -176,3 +194,5 @@ bool is_napi_value_int(const Napi::Env& env, const Napi::Value& num);
 ov::AnyMap to_anyMap(const Napi::Env&, const Napi::Value&);
 
 std::string buffer_to_string(const Napi::Value& value);
+
+uint32_t get_optimal_number_of_requests(const ov::CompiledModel& actual);

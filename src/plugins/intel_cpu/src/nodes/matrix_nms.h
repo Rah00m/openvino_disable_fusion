@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -82,10 +82,10 @@ private:
 
         Rectangle() = default;
 
-        float x1 = 0.0f;
-        float y1 = 0.0f;
-        float x2 = 0.0f;
-        float y2 = 0.0f;
+        float x1 = 0.0F;
+        float y1 = 0.0F;
+        float x2 = 0.0F;
+        float y2 = 0.0F;
     };
 
     struct BoxInfo {
@@ -102,13 +102,13 @@ private:
         int64_t index = -1;
         int64_t batchIndex = -1;
         int64_t classIndex = -1;
-        float score = 0.0f;
+        float score = 0.0F;
     };
     const std::string m_inType = "input", m_outType = "output";
     std::vector<int64_t> m_numPerBatch;
     std::vector<std::vector<int64_t>> m_numPerBatchClass;
     std::vector<BoxInfo> m_filteredBoxes;
-    std::vector<int> m_classOffset;
+    std::vector<size_t> m_classOffset;
     size_t m_realNumClasses = 0;
     size_t m_realNumBoxes = 0;
     float (*m_decay_fn)(float, float, float) = nullptr;

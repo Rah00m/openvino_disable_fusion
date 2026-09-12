@@ -1,18 +1,14 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
-
+#include "common_test_utils/ov_tensor_utils.hpp"
 #include "shared_test_classes/single_op/log_softmax.hpp"
 #include "openvino/op/log_softmax.hpp"
 
 namespace ov {
 namespace test {
 std::string LogSoftmaxLayerTest::getTestCaseName(const testing::TestParamInfo<logSoftmaxLayerTestParams>& obj) {
-    ov::element::Type model_type;
-    std::vector<InputShape> shapes;
-    int64_t axis;
-    std::string target_device;
-    std::tie(model_type, shapes, axis, target_device) = obj.param;
+    const auto& [model_type, shapes, axis, target_device] = obj.param;
 
     std::ostringstream result;
     result << "IS=(";
@@ -35,12 +31,23 @@ std::string LogSoftmaxLayerTest::getTestCaseName(const testing::TestParamInfo<lo
     return result.str();
 }
 
-void LogSoftmaxLayerTest::SetUp() {
-    ov::element::Type model_type;
-    std::vector<InputShape> shapes;
-    int64_t axis;
+void LogSoftmaxLayerTest::generate_inputs(const std::vector<ov::Shape>& target_shapes) {
+    inputs.clear();
+    const auto& func_inputs = function->inputs();
+    auto& data_input = func_inputs[0];
 
-    std::tie(model_type, shapes, axis, targetDevice) = GetParam();
+    ov::test::utils::InputGenerateData in_data;
+    in_data.start_from = 5;
+    in_data.range = 15;
+    in_data.resolution = 1000;
+
+    ov::Tensor data_tensor = ov::test::utils::create_and_fill_tensor(data_input.get_element_type(), data_input.get_shape(), in_data);
+    inputs.insert({data_input.get_node_shared_ptr(), data_tensor});
+}
+
+void LogSoftmaxLayerTest::SetUp() {
+    const auto& [model_type, shapes, axis, _targetDevice] = GetParam();
+    targetDevice = _targetDevice;
     init_input_shapes(shapes);
 
     auto param = std::make_shared<ov::op::v0::Parameter>(model_type, inputDynamicShapes.front());

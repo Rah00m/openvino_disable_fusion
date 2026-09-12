@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -21,7 +21,7 @@ public:
     explicit wait_for_events_impl(const program_node& /*node*/)
         : primitive_impl("wait_for_events") { }
 
-    wait_for_events_impl() : primitive_impl() {}
+    wait_for_events_impl() = default;
 
     DECLARE_OBJECT_TYPE_SERIALIZATION(cldnn::common::wait_for_events_impl)
 

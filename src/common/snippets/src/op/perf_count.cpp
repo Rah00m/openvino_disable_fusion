@@ -1,29 +1,29 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
-#include <chrono>
-#include <cstdint>
-#include <ios>
-#include <iostream>
-#include <memory>
-#include <ostream>
-#include <string>
-#include <utility>
-#include <vector>
-
-#include "openvino/core/attribute_visitor.hpp"
-#include "openvino/core/except.hpp"
-#include "openvino/core/node.hpp"
-#include "openvino/core/node_output.hpp"
-#include "openvino/core/node_vector.hpp"
-#include "openvino/core/type.hpp"
-#include "openvino/core/type/element_type.hpp"
-#include "openvino/op/op.hpp"
 #ifdef SNIPPETS_DEBUG_CAPS
 
-#    include <fstream>
-
 #    include "snippets/op/perf_count.hpp"
+
+#    include <chrono>
+#    include <cstdint>
+#    include <fstream>
+#    include <ios>
+#    include <iostream>
+#    include <memory>
+#    include <ostream>
+#    include <string>
+#    include <utility>
+#    include <vector>
+
+#    include "openvino/core/attribute_visitor.hpp"
+#    include "openvino/core/except.hpp"
+#    include "openvino/core/node.hpp"
+#    include "openvino/core/node_output.hpp"
+#    include "openvino/core/node_vector.hpp"
+#    include "openvino/core/type.hpp"
+#    include "openvino/core/type/element_type.hpp"
+#    include "openvino/op/op.hpp"
 
 namespace ov::snippets {
 
@@ -183,15 +183,16 @@ void PerfCountBegin::set_start_time() {
 
 PerfCountEnd::PerfCountEnd(const Output<Node>& pc_begin,
                            std::vector<std::shared_ptr<utils::Dumper>> dumpers,
-                           const std::string& params)
+                           std::string params)
     : PerfCountEndBase({pc_begin}),
-      accumulation(0ul),
-      iteration(0u),
-      dumpers(std::move(dumpers)) {
+      accumulation(0UL),
+      iteration(0U),
+      dumpers(std::move(dumpers)),
+      m_params(std::move(params)) {
     constructor_validate_and_infer_types();
     init_pc_begin();
     for (const auto& dumper : this->dumpers) {
-        dumper->init(params);
+        dumper->init(m_params);
     }
 }
 
@@ -202,7 +203,7 @@ PerfCountEnd::~PerfCountEnd() {
 }
 
 std::shared_ptr<Node> PerfCountEnd::clone_with_new_inputs(const OutputVector& inputs) const {
-    return std::make_shared<PerfCountEnd>(inputs.at(0), dumpers);
+    return std::make_shared<PerfCountEnd>(inputs.at(0), dumpers, m_params);
 }
 
 void PerfCountEnd::set_accumulated_time() {

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -21,7 +21,7 @@ struct scatter_elements_update_params : public base_params {
 class ScatterElementsUpdateKernelRef : public KernelBaseOpenCL {
 public:
     ScatterElementsUpdateKernelRef() : KernelBaseOpenCL("scatter_elements_update_ref") {}
-    virtual ~ScatterElementsUpdateKernelRef() {}
+    ~ScatterElementsUpdateKernelRef() override = default;
     virtual JitConstants GetJitConstants(const scatter_elements_update_params& params) const;
     virtual CommonDispatchData SetDefault(const scatter_elements_update_params& params, bool is_second) const;
     KernelsData GetKernelsData(const Params& params) const override;

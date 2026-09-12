@@ -1,4 +1,4 @@
-# Copyright (C) 2018-2025 Intel Corporation
+# Copyright (C) 2018-2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -20,8 +20,10 @@ add_library(cpuUtils STATIC
     $<TARGET_PROPERTY:openvino_intel_cpu_plugin,SOURCE_DIR>/src/utils/rt_info/memory_formats_attribute.cpp
     $<TARGET_PROPERTY:openvino_intel_cpu_plugin,SOURCE_DIR>/src/utils/precision_support.h
     $<TARGET_PROPERTY:openvino_intel_cpu_plugin,SOURCE_DIR>/src/utils/precision_support.cpp
+    $<TARGET_PROPERTY:openvino_intel_cpu_plugin,SOURCE_DIR>/src/utils/arm_isa_support.h
+    $<TARGET_PROPERTY:openvino_intel_cpu_plugin,SOURCE_DIR>/src/utils/arm_isa_support.cpp
     ${CPU_ISA_TRAITS_RV64})
-set(CPU_UTILS_LINK_LIBRARIES openvino::runtime)
+set(CPU_UTILS_LINK_LIBRARIES openvino::runtime::dev)
 set(CPU_UTILS_INCLUDE_PATHS)
 if(OV_CPU_WITH_ACL)
     list(APPEND CPU_UTILS_LINK_LIBRARIES arm_compute::arm_compute)
@@ -29,17 +31,19 @@ if(OV_CPU_WITH_ACL)
 endif()
 if(OV_CPU_WITH_DNNL)
     list(APPEND CPU_UTILS_LINK_LIBRARIES dnnl)
-    list(APPEND CPU_UTILS_INCLUDE_PATHS $<TARGET_PROPERTY:openvino_intel_cpu_plugin,SOURCE_DIR>/thirdparty/onednn/src)
+    list(APPEND CPU_UTILS_INCLUDE_PATHS
+        $<TARGET_PROPERTY:openvino_intel_cpu_plugin,SOURCE_DIR>/thirdparty/onednn/src
+        $<TARGET_PROPERTY:openvino_intel_cpu_plugin,SOURCE_DIR>/thirdparty/onednn/third_party)
 endif()
 if(RISCV64)
     list(APPEND CPU_UTILS_LINK_LIBRARIES xbyak_riscv)
 endif()
 target_link_libraries(cpuUtils PRIVATE ${CPU_UTILS_LINK_LIBRARIES})
-target_include_directories(cpuUtils PUBLIC ${CPU_UTILS_INCLUDE_PATHS})
+target_include_directories(cpuUtils PRIVATE ${CPU_UTILS_INCLUDE_PATHS})
 
 set(INCLUDES ${CMAKE_CURRENT_SOURCE_DIR} $<TARGET_PROPERTY:openvino_intel_cpu_plugin,SOURCE_DIR>/src)
 set(DEPENDENCIES openvino_intel_cpu_plugin openvino_template_extension)
-set(LINK_LIBRARIES funcSharedTests cpuUtils openvino::snippets ov_snippets_models)
+set(LINK_LIBRARIES funcSharedTests cpuUtils openvino::snippets ov_snippets_models openvino::reference)
 
 if(ENABLE_OV_ONNX_FRONTEND)
     list(APPEND DEFINES TEST_MODELS="${TEST_MODEL_ZOO}")
@@ -51,7 +55,7 @@ if(NOT RISCV64)
     list(APPEND EXCLUDED_SOURCE_PATHS
          ${CMAKE_CURRENT_SOURCE_DIR}/custom/single_layer_tests/instances/riscv64
          ${CMAKE_CURRENT_SOURCE_DIR}/utils/riscv64)
-elseif(NOT OV_CPU_WITH_SHL)
+else()
     list(APPEND EXCLUDED_SOURCE_PATHS
          ${CMAKE_CURRENT_SOURCE_DIR}/custom/single_layer_tests/instances/riscv64/shl)
 endif()
@@ -60,7 +64,6 @@ if(NOT (X86 OR X86_64))
     list(APPEND EXCLUDED_SOURCE_PATHS
          ${CMAKE_CURRENT_SOURCE_DIR}/custom/single_layer_tests/instances/x64
          ${CMAKE_CURRENT_SOURCE_DIR}/custom/subgraph_tests/src/x64
-         ${CMAKE_CURRENT_SOURCE_DIR}/shared_tests_instances/snippets/x64
          ${CMAKE_CURRENT_SOURCE_DIR}/utils/x64)
 endif()
 
@@ -68,7 +71,6 @@ if(NOT (ARM OR AARCH64))
     list(APPEND EXCLUDED_SOURCE_PATHS
          ${CMAKE_CURRENT_SOURCE_DIR}/custom/single_layer_tests/instances/arm
          ${CMAKE_CURRENT_SOURCE_DIR}/custom/subgraph_tests/src/arm
-         ${CMAKE_CURRENT_SOURCE_DIR}/shared_tests_instances/snippets/arm
          ${CMAKE_CURRENT_SOURCE_DIR}/shared_tests_instances/low_precision_transformations/aarch64
          ${CMAKE_CURRENT_SOURCE_DIR}/utils/arm)
 else()
@@ -105,7 +107,6 @@ ov_add_test_target(
         DEFINES ${DEFINES}
         DEPENDENCIES ${DEPENDENCIES}
         LINK_LIBRARIES ${LINK_LIBRARIES}
-        ADD_CPPLINT
         LABELS OV CPU
 )
 

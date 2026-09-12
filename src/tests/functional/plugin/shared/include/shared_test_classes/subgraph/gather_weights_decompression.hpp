@@ -1,4 +1,4 @@
-// Copyright (C) 2024 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -6,7 +6,8 @@
 
 #include "common_test_utils/ov_tensor_utils.hpp"
 #include "shared_test_classes/base/ov_subgraph.hpp"
-#include "shared_test_classes/subgraph/weights_decompression_builders.hpp"
+#include "shared_test_classes/subgraph/weights_decompression_params.hpp"
+#include "common_test_utils/subgraph_builders/weights_decompression_builders.hpp"
 
 namespace ov {
 namespace test {
@@ -32,14 +33,13 @@ protected:
  *             Gather
  */
 
-using GatherWeightsDecompressionParams = std::tuple<std::string,        // Device name
+using GatherWeightsDecompressionParams = std::tuple<std::string,                          // Device name
                                                     GatherDecompressionShapeParams,
-                                                    ov::element::Type,  // data type
-                                                    ov::element::Type,  // output type
-                                                    bool,               // decompression subtract
-                                                    bool,               // reshape on decompression constants
-                                                    bool,               // per-tensor scale
-                                                    bool>;              // per-tensor zero-point
+                                                    ov::element::Type,                    // data type
+                                                    ov::element::Type,                    // output type
+                                                    ov::test::utils::DecompressionType,   // decompression multiply type
+                                                    ov::test::utils::DecompressionType,   // decompression subtract type
+                                                    bool>;                                // reshape on decompression constants
 
 class GatherWeightsDecompression : public testing::WithParamInterface<GatherWeightsDecompressionParams>,
                                    virtual public ov::test::GatherWeightsDecompressionBase {
@@ -54,10 +54,9 @@ protected:
                                              const int group_size,
                                              const ov::element::Type data_precision,
                                              const ov::element::Type output_precision,
-                                             const bool add_subtract,
-                                             const bool reshape_on_decompression,
-                                             const bool per_tensor_zp,
-                                             const bool per_tensor_scale);
+                                             const ov::test::utils::DecompressionType decompression_multiply_type,
+                                             const ov::test::utils::DecompressionType decompression_subtract_type,
+                                             const bool reshape_on_decompression);
     void check_results();
     void SetUp() override;
 };

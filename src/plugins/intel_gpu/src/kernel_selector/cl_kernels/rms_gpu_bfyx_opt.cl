@@ -1,10 +1,11 @@
-// Copyright (C) 2023 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #include "include/fetch_utils.cl"
 #include "include/batch_headers/sub_group_block_read.cl"
 #include "include/batch_headers/sub_group_block_write.cl"
+#include "include/batch_headers/bf16_utils.cl"
 
 // Check alignment restrictions for using block writes on output.
 #define USE_BLOCK_WRITE ((OUTPUT_TYPE_SIZE * OUTPUT_FEATURE_PITCH) & 0xF == 0)
@@ -19,7 +20,7 @@
 #define BLOCK_READ(ptr, offset) CAT(DT_INPUT_BLOCK_READ, SUBGROUP_BLOCK_SIZE)(ptr, offset)
 #define BLOCK_WRITE(ptr, offset, val) CAT(DT_OUTPUT_BLOCK_WRITE, SUBGROUP_BLOCK_SIZE)(ptr, offset, val)
 #define ACC_TYPE MAKE_VECTOR_TYPE(ACCUMULATOR_TYPE, SUBGROUP_BLOCK_SIZE)
-#define TO_ACC_TYPE(x) CAT(convert_, ACC_TYPE)(x)
+#define TO_ACC_TYPE(x) TO_ACCUMULATOR_VECTOR_TYPE(x, SUBGROUP_BLOCK_SIZE)
 #define OUTPUT_VEC_TYPE MAKE_VECTOR_TYPE(OUTPUT_TYPE, SUBGROUP_BLOCK_SIZE)
 #endif
 
@@ -27,7 +28,9 @@ REQD_SUB_GROUP_SIZE(SUB_GROUP_SIZE)
 KERNEL(rms_gpu_bfyx_opt)(
     OPTIONAL_SHAPE_INFO_ARG
     const __global INPUT0_TYPE* input,
+#if ELEMENTWISE_AFFINE
     const __global INPUT1_TYPE* gamma,
+#endif
     __global OUTPUT_TYPE* output
     #if HAS_FUSED_OPS_DECLS
         , FUSED_OPS_DECLS
@@ -41,7 +44,7 @@ KERNEL(rms_gpu_bfyx_opt)(
     const uint items_num = data_size / workers_per_data;
     const uint leftovers = data_size % workers_per_data;
 
-    #if HAS_DYNAMIC_PADDING
+    #if HAS_PADDING
         uint b_idx = 0;
         uint f_idx = 0;
         uint z_idx = 0;
@@ -122,11 +125,15 @@ KERNEL(rms_gpu_bfyx_opt)(
 
     if (in_data_idx == 0) {
         rms = slm_buf[0] / data_size;
-        slm_buf[0] = native_powr(sqrt(rms + TO_ACCUMULATOR_TYPE(EPSILON)), -1);
+        slm_buf[0] = native_powr(sqrt(rms + EPSILON), -1);
     }
     barrier(CLK_LOCAL_MEM_FENCE);
 
     rms = slm_buf[0];
+
+#if ELEMENTWISE_AFFINE && RMS_GAMMA_IS_SCALAR
+    const ACCUMULATOR_TYPE gamma_scalar = TO_ACCUMULATOR_TYPE(gamma[0]);
+#endif
 
     #if HAS_FUSED_OPS
         uint b, f, z, y, x;
@@ -153,13 +160,25 @@ KERNEL(rms_gpu_bfyx_opt)(
     {
         for (; i < items_num - (items_num % SUBGROUP_BLOCK_SIZE); i += SUBGROUP_BLOCK_SIZE)
         {
+#if ELEMENTWISE_AFFINE
+#if !RMS_GAMMA_IS_SCALAR
             ACC_TYPE vec_gamma = TO_ACC_TYPE(BLOCK_READ(gamma, subgroup_offset + i * get_sub_group_size()));
+#endif
+#endif
             OUTPUT_VEC_TYPE vec_tmp;
             #if HAS_FUSED_OPS
                 LAST_DIM = subgroup_offset + i * get_sub_group_size() + get_sub_group_local_id();
             #endif
 #if SUBGROUP_BLOCK_SIZE == 1
+#if ELEMENTWISE_AFFINE
+#if RMS_GAMMA_IS_SCALAR
+            OUTPUT_TYPE normalized = TO_OUTPUT_TYPE(rms * data[i] * gamma_scalar);
+#else
             OUTPUT_TYPE normalized = TO_OUTPUT_TYPE(rms * data[i] * vec_gamma);
+#endif
+#else
+            OUTPUT_TYPE normalized = TO_OUTPUT_TYPE(rms * data[i]);
+#endif
             #if HAS_FUSED_OPS
                 FUSED_OPS;
                 normalized = FUSED_OPS_RESULT;
@@ -167,7 +186,15 @@ KERNEL(rms_gpu_bfyx_opt)(
             vec_tmp = normalized;
 #else
             unroll_for (int j = 0; j < SUBGROUP_BLOCK_SIZE; j++) {
+#if ELEMENTWISE_AFFINE
+#if RMS_GAMMA_IS_SCALAR
+                OUTPUT_TYPE normalized = TO_OUTPUT_TYPE(rms * data[i + j] * gamma_scalar);
+#else
                 OUTPUT_TYPE normalized = TO_OUTPUT_TYPE(rms * data[i + j] * vec_gamma[j]);
+#endif
+#else
+                OUTPUT_TYPE normalized = TO_OUTPUT_TYPE(rms * data[i + j]);
+#endif
                 #if HAS_FUSED_OPS
                     LAST_DIM += j * get_sub_group_size();
                     FUSED_OPS;
@@ -182,8 +209,16 @@ KERNEL(rms_gpu_bfyx_opt)(
 
     for (; i < items_num; i++)
     {
+#if ELEMENTWISE_AFFINE
+    #if RMS_GAMMA_IS_SCALAR
+        OUTPUT_TYPE normalized = TO_OUTPUT_TYPE(rms * data[i] * gamma_scalar);
+    #else
         ACCUMULATOR_TYPE temp = TO_ACCUMULATOR_TYPE(gamma[subgroup_offset + get_sub_group_local_id() + i * get_sub_group_size()]);
         OUTPUT_TYPE normalized = TO_OUTPUT_TYPE(rms * data[i] * temp);
+    #endif
+#else
+        OUTPUT_TYPE normalized = TO_OUTPUT_TYPE(rms * data[i]);
+#endif
         #if HAS_FUSED_OPS
             LAST_DIM = subgroup_offset + get_sub_group_local_id() + i * get_sub_group_size();
             FUSED_OPS;
@@ -194,8 +229,16 @@ KERNEL(rms_gpu_bfyx_opt)(
 
     if (in_data_idx < leftovers)
     {
+#if ELEMENTWISE_AFFINE
+    #if RMS_GAMMA_IS_SCALAR
+        OUTPUT_TYPE normalized = TO_OUTPUT_TYPE(rms * data[items_num] * gamma_scalar);
+    #else
         ACCUMULATOR_TYPE temp = TO_ACCUMULATOR_TYPE(gamma[workers_per_data * items_num + in_data_idx]);
         OUTPUT_TYPE normalized = TO_OUTPUT_TYPE(rms * data[items_num] * temp);
+    #endif
+#else
+        OUTPUT_TYPE normalized = TO_OUTPUT_TYPE(rms * data[items_num]);
+#endif
         #if HAS_FUSED_OPS
             LAST_DIM = workers_per_data * items_num + in_data_idx;
             FUSED_OPS;

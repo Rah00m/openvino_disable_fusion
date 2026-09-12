@@ -1,4 +1,4 @@
-# Copyright (C) 2018-2025 Intel Corporation
+# Copyright (C) 2018-2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -18,7 +18,7 @@ endif()
 
 project(Samples
         DESCRIPTION "OpenVINO Samples"
-        HOMEPAGE_URL "https://docs.openvino.ai/2025/get-started/learn-openvino/openvino-samples.html"
+        HOMEPAGE_URL "https://docs.openvino.ai/2026/get-started/learn-openvino/openvino-samples.html"
         LANGUAGES C CXX)
 
 get_property(OV_GENERATOR_MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
@@ -59,7 +59,11 @@ endif()
 
 if(OpenVINO_SOURCE_DIR)
     # in case if samples are built from OV repo
-    set(OV_MAIN_SAMPLES_DIR "${OpenVINO_SOURCE_DIR}")
+    if (DEFINED OUTPUT_ROOT)
+        set(OV_MAIN_SAMPLES_DIR "${OUTPUT_ROOT}")
+    else()
+        set(OV_MAIN_SAMPLES_DIR "${OpenVINO_SOURCE_DIR}")
+    endif()
     set(OpenVINO_DIR "${CMAKE_BINARY_DIR}")
 else()
     # in case if samples are built out of OV repo
@@ -111,6 +115,10 @@ endif()
 if(TARGET gflags)
     set(GFLAGS_TARGET gflags)
 elseif(gflags_required)
+    # CMake 4.0 and higher will drop support for CMake versions <= 3.5.
+    # By explicitly setting CMAKE_POLICY_VERSION_MINIMUM, we ensure compatibility with dependencies like gflags,
+    # which require at least CMake 3.0.2, and avoid policy warnings or errors in future CMake versions.
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
     set(GFLAGS_TARGET gflags_nothreads_static)
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/gflags")
         add_subdirectory(thirdparty/gflags EXCLUDE_FROM_ALL)
@@ -136,8 +144,7 @@ function(ov_add_samples_to_build)
     foreach (dir ${ARGN})
         if (IS_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${dir})
             # check if a subdirectory contains CMakeLists.txt. In this case we can build it.
-            file(GLOB is_sample_dir "${CMAKE_CURRENT_SOURCE_DIR}/${dir}/CMakeLists.txt")
-            if(is_sample_dir)
+            if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${dir}/CMakeLists.txt")
                 # check if specified sample/demo is found.
                 if (BUILD_SAMPLE_NAME)
                     list(FIND BUILD_SAMPLE_NAME ${dir} index)
@@ -239,13 +246,21 @@ macro(ov_add_sample)
     unset(SAMPLE_INCLUDE_DIRECTORIES)
 endmacro()
 
-# collect all samples subdirectories
-file(GLOB samples_dirs RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} *)
+set(samples_dirs
+    benchmark
+    benchmark_app
+    classification_sample_async
+    hello_classification
+    hello_nv12_input_classification
+    hello_query_device
+    hello_reshape_ssd
+    model_creation_sample
+)
 
-# skip building of unnecessary subdirectories
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty")
-    list(REMOVE_ITEM samples_dirs thirdparty)
-endif()
-list(REMOVE_ITEM samples_dirs common)
+# DO NOT REMOVE: the installed samples dir is a merge of OV's and GenAI's samples archives,
+# merging their two CMakeLists.txt isn't trivial.
+file(GLOB extra_samples_dirs RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" *)
+list(REMOVE_ITEM extra_samples_dirs common thirdparty ${samples_dirs})
+list(APPEND samples_dirs ${extra_samples_dirs})
 
 ov_add_samples_to_build(${samples_dirs})

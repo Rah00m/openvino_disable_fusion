@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -69,8 +69,8 @@ inline VectorDims getPaddedInputShape(const VectorDims& srcDims,
                                       const std::vector<int>& padBegin,
                                       const std::vector<int>& padEnd) {
     VectorDims paddedShape;
-    int dataRank = srcDims.size();
-    for (int i = 0; i < dataRank; i++) {
+    size_t dataRank = srcDims.size();
+    for (size_t i = 0; i < dataRank; i++) {
         paddedShape.push_back(srcDims[i] + padBegin[i] + padEnd[i]);
     }
     return paddedShape;
@@ -98,7 +98,7 @@ inline size_t getSpatialDimsNum(const Dim rank) {
 // w/hw/ncw/nchw/ncdhw to ncdhw
 inline VectorDims to5Dim(VectorDims casesDim) {
     size_t caseSize = casesDim.size();
-    VectorDims dim5(5, 1lu);
+    VectorDims dim5(5, 1LU);
     dim5[4] = casesDim[caseSize - 1];
     if (caseSize > 1) {
         dim5[3] = casesDim[caseSize - 2];
@@ -114,13 +114,13 @@ inline VectorDims to5Dim(VectorDims casesDim) {
     }
     if (caseSize == 3) {  // nhw -> ncw
         dim5[1] = dim5[3];
-        dim5[3] = 1lu;
+        dim5[3] = 1LU;
     }
     return dim5;
 }
 
 static inline float triangleCoeff(float x) {
-    return (std::max)(0.0f, 1 - std::abs(x));
+    return (std::max)(0.0F, 1 - std::abs(x));
 }
 
 class InterpolateExecutor {
@@ -130,7 +130,7 @@ public:
     static constexpr size_t SCALES_ID = 2;
     static constexpr size_t AXES_ID = 3;
     static constexpr int CUBIC_GRID_LEN = 4;
-    InterpolateExecutor(ExecutorContext::CPtr context) : _context(std::move(context)) {}
+    explicit InterpolateExecutor(ExecutorContext::CPtr context) : _context(std::move(context)) {}
 
     virtual bool init(const InterpolateAttrs& interpolateAttrs,
                       const std::vector<MemoryDescPtr>& srcDescs,

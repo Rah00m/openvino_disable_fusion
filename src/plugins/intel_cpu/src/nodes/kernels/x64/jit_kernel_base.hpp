@@ -1,14 +1,10 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #pragma once
 
-#include <cpu/x64/xbyak/xbyak.h>
-
 #include <cassert>
-#include <common/c_types_map.hpp>
-#include <cpu/x64/cpu_isa_traits.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -16,8 +12,14 @@
 
 #include "openvino/core/except.hpp"
 #include "openvino/core/visibility.hpp"
+#include "utils/cpu_utils.hpp"
 
 #if defined(OPENVINO_ARCH_X86_64)
+#    include <xbyak/xbyak.h>
+
+#    include <common/c_types_map.hpp>
+#    include <cpu/x64/cpu_isa_traits.hpp>
+
 #    include "cpu/x64/jit_generator.hpp"
 #    include "registers_pool.hpp"
 #endif  // OPENVINO_ARCH_X86_64
@@ -33,7 +35,7 @@ class JitKernelBase;
 #    define getVmm()   RegistersPool::Reg<Vmm>(registersPool)
 #    define getMask()  RegistersPool::Reg<Vmask>(registersPool)
 
-class JitKernelBase : public dnnl::impl::cpu::x64::jit_generator {
+class JitKernelBase : public dnnl::impl::cpu::x64::jit_generator_t {
 public:
     JitKernelBase(const char* name, dnnl::impl::cpu::x64::cpu_isa_t max_cpu_isa);
 
@@ -52,7 +54,7 @@ public:
     void uni_vfmsub231ps(const Xbyak::Xmm& v_dst, const Xbyak::Xmm& v_src, const Xbyak::Operand& op);
 
     void uni_vpaddd(const Xbyak::Xmm& v_dst, const Xbyak::Xmm& v_src, const Xbyak::Operand& op) {
-        jit_generator::uni_vpaddd(v_dst, v_src, op);
+        jit_generator_t::uni_vpaddd(v_dst, v_src, op);
     }
 
     void uni_vpaddd(const Xbyak::Ymm& v_dst, const Xbyak::Ymm& v_src, const Xbyak::Operand& op);
@@ -60,7 +62,7 @@ public:
     void uni_vpaddq(const Xbyak::Xmm& v_dst, const Xbyak::Xmm& v_src, const Xbyak::Operand& op);
 
     void uni_vpsubd(const Xbyak::Xmm& v_dst, const Xbyak::Xmm& v_src, const Xbyak::Operand& op) {
-        jit_generator::uni_vpsubd(v_dst, v_src, op);
+        jit_generator_t::uni_vpsubd(v_dst, v_src, op);
     }
 
     void uni_vpsubd(const Xbyak::Ymm& v_dst, const Xbyak::Ymm& v_src, const Xbyak::Operand& op);
@@ -212,15 +214,14 @@ public:
     ~JitKernel() override = default;
 
     dnnl::impl::status_t create_kernel() override {
-        const dnnl::impl::status_t code = jit_generator::create_kernel();
-        if (code != dnnl::impl::status::success) {
-            OPENVINO_THROW("Could not create kernel. Error code: ",
-                           std::to_string(code),
-                           ". ",
-                           "Xbyak error code: ",
-                           Xbyak::ConvertErrorToString(Xbyak::GetError()));
-        }
-        m_func = (decltype(m_func))jit_ker();
+        const dnnl::impl::status_t code = jit_generator_t::create_kernel();
+        OPENVINO_ASSERT(code == dnnl::impl::status::success,
+                        "Could not create kernel. Error code: ",
+                        std::to_string(code),
+                        ". ",
+                        "Xbyak error code: ",
+                        Xbyak::ConvertErrorToString(Xbyak::GetError()));
+        m_func = jit_kernel_cast<decltype(m_func)>(jit_ker());
         return code;
     }
 

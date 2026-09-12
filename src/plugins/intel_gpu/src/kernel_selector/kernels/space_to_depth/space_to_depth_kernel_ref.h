@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -22,7 +22,7 @@ struct space_to_depth_params : public base_params {
 class SpaceToDepthKernelRef : public KernelBaseOpenCL {
 public:
     SpaceToDepthKernelRef() : KernelBaseOpenCL("space_to_depth_ref") {}
-    virtual ~SpaceToDepthKernelRef() = default;
+    ~SpaceToDepthKernelRef() override = default;
     KernelsData GetKernelsData(const Params& params) const override;
     KernelsPriority GetKernelsPriority(const Params& params) const override;
     ParamsKey GetSupportedKey() const override;

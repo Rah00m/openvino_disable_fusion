@@ -1,5 +1,5 @@
-// Copyright (C) 2024 Intel Corporation
-// SPDX-License-Identifcorer: Apache-2.0
+// Copyright (C) 2018-2026 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
 
 #include <gmock/gmock-matchers.h>
@@ -17,10 +17,8 @@ namespace test {
 namespace behavior {
 
 std::string OVCompiledGraphImportExportTest::getTestCaseName(testing::TestParamInfo<OVCompiledGraphImportExportTestParams> obj) {
-    ov::element::Type_t elementType;
-    std::string targetDevice;
-    ov::AnyMap configuration;
-    std::tie(elementType, targetDevice, configuration) = obj.param;
+    const auto& [elementType, _targetDevice, configuration] = obj.param;
+    auto targetDevice = _targetDevice;
     std::replace(targetDevice.begin(), targetDevice.end(), ':', '.');
     std::ostringstream result;
     result << "targetDevice=" << targetDevice << "_";
@@ -38,7 +36,7 @@ std::string OVCompiledGraphImportExportTest::getTestCaseName(testing::TestParamI
 }
 
 void  OVCompiledGraphImportExportTest::SetUp() {
-    // Skip test according to plugin specific disabledTestPatterns() (if any)
+    // Skip test according to plugin specific disabled_test_patterns() (if any)
     SKIP_IF_CURRENT_TEST_IS_DISABLED();
     std::tie(elementType, target_device, configuration) = this->GetParam();
     APIBaseTest::SetUp();
@@ -300,12 +298,13 @@ TEST_P(OVClassCompiledModelImportExportTestP, smoke_ImportNetworkNoThrowWithDevi
 
 TEST_P(OVClassCompiledModelImportExportTestP, smoke_ImportNetworkThrowWithDeviceName) {
     SKIP_IF_CURRENT_TEST_IS_DISABLED();
-    ov::Core ie = createCoreWithTemplate();
+    ov::Core ie = ov::test::utils::create_core();
     std::stringstream wrongStm;
     // Import model with wrong format throws exception
     OV_EXPECT_THROW((ie.import_model(wrongStm, target_device)),
                     ov::Exception,
-                    testing::HasSubstr("device xml header"));
+                    testing::AnyOf(testing::HasSubstr("device xml header"),
+                                   testing::HasSubstr("requirements header")));
 }
 
 //
@@ -313,10 +312,8 @@ TEST_P(OVClassCompiledModelImportExportTestP, smoke_ImportNetworkThrowWithDevice
 //
 
 std::string OVCompiledModelGraphUniqueNodeNamesTest::getTestCaseName(testing::TestParamInfo<OVCompiledModelGraphUniqueNodeNamesTestParams> obj) {
-    ov::element::Type netPrecision;
-    ov::Shape inputShapes;
-    std::string targetDevice;
-    std::tie(netPrecision, inputShapes, targetDevice) = obj.param;
+    const auto& [netPrecision, inputShapes, _targetDevice] = obj.param;
+    auto targetDevice = _targetDevice;
     std::replace(targetDevice.begin(), targetDevice.end(), ':', '_');
 
     std::ostringstream result;
@@ -327,10 +324,9 @@ std::string OVCompiledModelGraphUniqueNodeNamesTest::getTestCaseName(testing::Te
 }
 
 void OVCompiledModelGraphUniqueNodeNamesTest::SetUp() {
-    ov::Shape inputShape;
-    ov::element::Type netPrecision;
     SKIP_IF_CURRENT_TEST_IS_DISABLED();
-    std::tie(netPrecision, inputShape, target_device) = this->GetParam();
+    const auto& [netPrecision, inputShape, _target_device] = this->GetParam();
+    target_device = _target_device;
 
     APIBaseTest::SetUp();
 
@@ -785,12 +781,14 @@ TEST_P(OVExecGraphSerializationTest, ExecutionGraph) {
     }
     ASSERT_TRUE(result.load_file(m_out_xml_path.c_str()));
 
-    bool status;
-    std::string message;
-    std::tie(status, message) = this->compare_docs(expected, result);
+    const auto& [status, message] = this->compare_docs(expected, result);
 
     ASSERT_TRUE(status) << message;
 }
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(OVClassCompiledModelImportExportTestP);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(OVCompiledModelGraphUniqueNodeNamesTest);
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(OVExecGraphSerializationTest);
 
 }  // namespace behavior
 }  // namespace test

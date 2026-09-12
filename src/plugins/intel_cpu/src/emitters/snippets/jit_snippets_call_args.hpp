@@ -1,4 +1,4 @@
-// Copyright (C) 2024 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -20,8 +20,8 @@ namespace ov::intel_cpu {
 #    define SNIPPETS_MAX_DATA_PTR_COUNT 11
 #endif
 
-#define GET_OFF(field)           offsetof(jit_snippets_call_args, field)
-#define GET_OFF_LOOP_ARGS(field) offsetof(jit_snippets_call_args::loop_args_t, field)
+#define GET_OFF(field)           offsetof(ov::intel_cpu::jit_snippets_call_args, field)
+#define GET_OFF_LOOP_ARGS(field) offsetof(ov::intel_cpu::jit_snippets_call_args::loop_args_t, field)
 
 struct amx_tile_config_t {
     dnnl_dim_t M = 0;
@@ -42,10 +42,10 @@ struct jit_snippets_call_args {
     void* dst_ptrs[SNIPPETS_MAX_DATA_PTR_COUNT] = {};
     void* buffer_scratchpad_ptr = nullptr;
 
-    // Note: Ideally loop_args must be private, since we manage this pointer manually.
+    // Note: Ideally loop_args must be private, since this pointer is non-owning.
     // However, standard-layout class definition (to use offset_of) requires the same access specifier
     // for all non-static data members. So we can keep them public or friend all control-flow emitters
-    loop_args_t* loop_args = nullptr;
+    const loop_args_t* loop_args = nullptr;
     amx_tile_config_t amx_tile_config;
     // Issue: 168073
     // TODO: decrease max array size

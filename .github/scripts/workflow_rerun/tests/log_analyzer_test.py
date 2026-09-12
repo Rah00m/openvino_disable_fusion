@@ -1,4 +1,4 @@
-# Copyright (C) 2024 Intel Corporation
+# Copyright (C) 2018-2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 
-from workflow_rerun.log_analyzer import LogAnalyzer
+from workflow_rerun.log_analyzer import CI_DOCTOR_PATTERN_TICKET, NO_CATEGORY, LogAnalyzer
 
 
 class LogAnalyzerTest(unittest.TestCase):
@@ -20,22 +20,26 @@ class LogAnalyzerTest(unittest.TestCase):
     def setUp(self) -> None:
         print(f'\nIn test: "{self._testMethodName}"', flush=True)
         self._cwd = Path(__file__).parent
-        self.log_archive_with_error = self._cwd.joinpath("data").joinpath(
-            'log_archive_with_error.zip'
+        self.logs_dir_with_error = self._cwd.joinpath("data").joinpath(
+            'logs_with_error'
         )
-        self.log_archive_wo_error = self._cwd.joinpath("data").joinpath(
-            'log_archive_wo_error.zip'
+        self.logs_dir_wo_error = self._cwd.joinpath("data").joinpath(
+            'logs_wo_error'
         )
         self.errors_to_look_for_file = self._cwd.parent.joinpath(
             'errors_to_look_for.json'
         )
+        self.empty_errors_file = self._cwd.joinpath('data').joinpath(
+            'empty_errors.json'
+        )
+        self.patterns_dir = self._cwd.joinpath('data').joinpath('patterns')
 
     def test_log_analyzer_instantiation(self) -> None:
         """
         Ensure LogAnalyzer is instantiated correctly.
         """
         analyzer = LogAnalyzer(
-            path_to_log_archive=self.log_archive_wo_error,
+            path_to_logs=self.logs_dir_wo_error,
             path_to_errors_file=self.errors_to_look_for_file,
         )
         self.assertTrue(
@@ -51,6 +55,7 @@ class LogAnalyzerTest(unittest.TestCase):
                 error_data['error_text'], 'Each error_data should have text'
             )
             self.assertTrue(error_data['ticket'], 'Each error_data should have ticket')
+            self.assertTrue(error_data['category'], 'Each error_data should have category')
 
         for log_file in analyzer._log_files:
             self.assertTrue(
@@ -63,7 +68,7 @@ class LogAnalyzerTest(unittest.TestCase):
         Ensure log cleanup function returns correct results
         """
         analyzer = LogAnalyzer(
-            path_to_log_archive=self.log_archive_wo_error,
+            path_to_logs=self.logs_dir_wo_error,
             path_to_errors_file=self.errors_to_look_for_file,
         )
 
@@ -86,19 +91,83 @@ class LogAnalyzerTest(unittest.TestCase):
         Ensure LogAnalyzer can find an error
         """
         analyzer = LogAnalyzer(
-            path_to_log_archive=self.log_archive_with_error,
+            path_to_logs=self.logs_dir_with_error,
             path_to_errors_file=self.errors_to_look_for_file,
         )
         analyzer.analyze()
         self.assertTrue(analyzer.found_matching_error)
+        self.assertEqual(analyzer.found_error_ticket, 130955)
+        self.assertEqual(analyzer.matched_error_text,
+                         'Network is unreachable')
+        self.assertEqual(analyzer.matched_category, 'Network')
 
     def test_analyzer_wo_error(self) -> None:
         """
         Ensure LogAnalyzer does not find an error in the log files w/o errors
         """
         analyzer = LogAnalyzer(
-            path_to_log_archive=self.log_archive_wo_error,
+            path_to_logs=self.logs_dir_wo_error,
             path_to_errors_file=self.errors_to_look_for_file,
         )
+        analyzer.analyze()
+        self.assertFalse(analyzer.found_matching_error)
+
+    def test_patterns_loaded_from_directory(self) -> None:
+        """
+        Ensure LogAnalyzer loads rerun_search_string values from CI Doctor MQ
+        pattern files (tagged with the CI_DOCTOR_PATTERN_TICKET sentinel ticket)
+        and skips patterns whose rerun_search_string is null.
+        """
+        analyzer = LogAnalyzer(
+            path_to_logs=self.logs_dir_wo_error,
+            path_to_errors_file=self.empty_errors_file,
+            patterns_dir=self.patterns_dir,
+        )
+
+        pattern_errors = analyzer._errors_to_look_for
+        self.assertEqual(
+            len(pattern_errors),
+            1,
+            'Only the pattern with a non-null rerun_search_string should be loaded',
+        )
+        self.assertEqual(pattern_errors[0]['error_text'], 'label empty or too long')
+        self.assertEqual(
+            pattern_errors[0]['ticket'],
+            CI_DOCTOR_PATTERN_TICKET,
+            'Pattern-derived errors must carry the CI_DOCTOR_PATTERN_TICKET sentinel',
+        )
+        self.assertEqual(
+            pattern_errors[0]['category'],
+            'Flaky Test',
+            'Pattern-derived errors must carry the pattern category',
+        )
+
+    def test_analyzer_matches_pattern_search_string(self) -> None:
+        """
+        Ensure LogAnalyzer can find an error using a rerun_search_string coming
+        from a CI Doctor MQ pattern file, reporting the sentinel ticket for it.
+        """
+        analyzer = LogAnalyzer(
+            path_to_logs=self.logs_dir_with_error,
+            path_to_errors_file=self.empty_errors_file,
+            patterns_dir=self.patterns_dir,
+        )
+        analyzer.analyze()
+        self.assertTrue(analyzer.found_matching_error)
+        self.assertEqual(analyzer.found_error_ticket, CI_DOCTOR_PATTERN_TICKET)
+        self.assertEqual(analyzer.matched_error_text, 'label empty or too long')
+        self.assertEqual(analyzer.matched_category, 'Flaky Test')
+
+    def test_missing_patterns_dir_is_ignored(self) -> None:
+        """
+        Ensure a non-existent patterns_dir does not break analysis and simply
+        adds no pattern-derived errors.
+        """
+        analyzer = LogAnalyzer(
+            path_to_logs=self.logs_dir_wo_error,
+            path_to_errors_file=self.empty_errors_file,
+            patterns_dir=self._cwd.joinpath('data').joinpath('does_not_exist'),
+        )
+        self.assertEqual(analyzer._errors_to_look_for, [])
         analyzer.analyze()
         self.assertFalse(analyzer.found_matching_error)

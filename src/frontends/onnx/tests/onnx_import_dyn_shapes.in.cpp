@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -100,7 +100,7 @@ OPENVINO_TEST(${BACKEND_NAME}, onnx_dyn_shapes_ab_plus_c_inference) {
 }
 
 OPENVINO_TEST(${BACKEND_NAME}, onnx_dyn_shapes_scalar_initializers_shape_check) {
-    // initializers defined witout the "dims" field should produce Constants with an empty Shape
+    // initializers defined without the "dims" field should produce Constants with an empty Shape
     // initializers with "dims: 0" should be have the same way (Shape{} not Shape{0})
     const auto model = convert_model("dynamic_shapes/scalar_initializers.onnx");
 
@@ -1211,6 +1211,23 @@ OPENVINO_TEST(${BACKEND_NAME}, onnx_model_eye_like_dyn_rank) {
     auto test_case = ov::test::TestCase(model, s_device);
     test_case.add_input<float>(Shape{3, 4}, {5.f, 5.f, 5.f, 5.f, 5.f, 5.f, 5.f, 5.f, 5.f, 5.f, 5.f, 5.f});
     test_case.add_expected_output<float>(Shape{3, 4}, {0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f, 1.f, 0.f, 0.f});
+
+    test_case.run();
+}
+
+OPENVINO_TEST(${BACKEND_NAME}, onnx_model_batch_norm_training_mode_dyn_rank) {
+    const auto model = convert_model("dynamic_shapes/batchnorm_training_mode_dyn_rank.onnx");
+
+    auto test_case = ov::test::TestCase(model, s_device);
+    test_case.add_input<float>(Shape{1, 2, 1, 3}, {-1.f, 0.f, 1.f, 2.f, 3.f, 4.f});  // data
+    test_case.add_input<float>(Shape{2}, {1.f, 1.5f});                               // scale
+    test_case.add_input<float>(Shape{2}, {0.f, 1.f});                                // bias
+    test_case.add_input<float>(Shape{2}, {0.f, 3.f});                                // mean
+    test_case.add_input<float>(Shape{2}, {1.f, 1.5f});                               // var
+    test_case.add_expected_output<float>(Shape{1, 2, 1, 3},
+                                         {-1.2247356f, 0.f, 1.2247356f, -0.83710337f, 1.f, 2.8371034f});
+    test_case.add_expected_output<float>(Shape{2}, {0.f, 3.f});                 // running mean
+    test_case.add_expected_output<float>(Shape{2}, {0.96666664f, 1.4166666f});  // running var
 
     test_case.run();
 }

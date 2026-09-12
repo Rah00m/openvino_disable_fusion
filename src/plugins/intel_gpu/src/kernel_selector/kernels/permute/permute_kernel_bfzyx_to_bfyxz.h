@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2018-2025 Intel Corporation
+﻿// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -15,7 +15,7 @@ public:
     using Parent = PermuteKernelBase;
     using Parent::Parent;
     PermuteKernel_bfzyx_to_bfyxz() : PermuteKernelBase("permute_bfzyx_to_bfyxz") {}
-    virtual ~PermuteKernel_bfzyx_to_bfyxz() {}
+    ~PermuteKernel_bfzyx_to_bfyxz() override = default;
 
     bool Validate(const Params& p) const override;
     KernelsPriority GetKernelsPriority(const Params& params) const override;

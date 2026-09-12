@@ -1,11 +1,18 @@
-// Copyright (C) 2018-2025 Intel Corporation
+// Copyright (C) 2018-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
+//
 
 #include "node/include/helper.hpp"
 
+#include <sstream>
+
 #include "node/include/compiled_model.hpp"
+#include "node/include/node_wrap.hpp"
 #include "node/include/tensor.hpp"
+#include "node/include/tensor_impl.hpp"
 #include "node/include/type_validation.hpp"
+#include "openvino/runtime/make_tensor.hpp"
+#include "openvino/util/common_util.hpp"
 
 const std::vector<std::string>& get_supported_types() {
     static const std::vector<std::string> supported_element_types =
@@ -151,6 +158,13 @@ ov::preprocess::ResizeAlgorithm js_to_cpp<ov::preprocess::ResizeAlgorithm>(const
 }
 
 template <>
+std::filesystem::path js_to_cpp<std::filesystem::path>(const Napi::CallbackInfo& info, const size_t idx) {
+    const auto& path = info[idx];
+    OPENVINO_ASSERT(path.IsString(), "Passed argument must be of type String.");
+    return std::filesystem::path(path.ToString().Utf8Value());
+}
+
+template <>
 ov::Any js_to_cpp<ov::Any>(const Napi::Env& env, const Napi::Value& value) {
     if (value.IsString()) {
         return ov::Any(value.ToString().Utf8Value());
@@ -282,13 +296,20 @@ Napi::Array cpp_to_js<ov::Dimension, Napi::Array>(const Napi::CallbackInfo& info
 
 Napi::Object cpp_to_js(const Napi::Env& env, std::shared_ptr<ov::Model> model) {
     const auto& prototype = env.GetInstanceData<AddonData>()->model;
-    if (!prototype) {
-        OPENVINO_THROW("Invalid pointer to Model prototype.");
-    }
+    OPENVINO_ASSERT(prototype, "Invalid pointer to Model prototype.");
     const auto& model_js = prototype.New({});
     const auto mw = Napi::ObjectWrap<ModelWrap>::Unwrap(model_js);
     mw->set_model(model);
     return model_js;
+}
+
+Napi::Object cpp_to_js(const Napi::Env& env, std::shared_ptr<ov::Node> node) {
+    const auto& prototype = env.GetInstanceData<AddonData>()->node;
+    OPENVINO_ASSERT(prototype, "Invalid pointer to Node prototype.");
+    const auto& node_js = prototype.New({});
+    const auto nw = Napi::ObjectWrap<NodeWrap>::Unwrap(node_js);
+    nw->set_node(node);
+    return node_js;
 }
 
 template <>
@@ -298,13 +319,34 @@ Napi::Boolean cpp_to_js<bool, Napi::Boolean>(const Napi::CallbackInfo& info, con
 
 Napi::Object cpp_to_js(const Napi::Env& env, const ov::CompiledModel& compiled_model) {
     const auto& prototype = env.GetInstanceData<AddonData>()->compiled_model;
-    if (!prototype) {
-        OPENVINO_THROW("Invalid pointer to CompiledModel prototype.");
-    }
+    OPENVINO_ASSERT(prototype, "Invalid pointer to CompiledModel prototype.");
     auto obj = prototype.New({});
     const auto cm = Napi::ObjectWrap<CompiledModelWrap>::Unwrap(obj);
     cm->set_compiled_model(compiled_model);
     return obj;
+}
+
+Napi::Object cpp_to_js(const Napi::Env& env, const ov::Version& version) {
+    Napi::Object version_obj = Napi::Object::New(env);
+    version_obj.Set("buildNumber", Napi::String::New(env, version.buildNumber));
+    version_obj.Set("description", Napi::String::New(env, version.description));
+
+    std::ostringstream formatted;
+    formatted << version;
+    const std::string formatted_str{ov::util::rtrim(formatted.str())};
+    const auto to_string_fn = Napi::Function::New(
+        env,
+        [formatted_str](const Napi::CallbackInfo& cb) -> Napi::Value {
+            return Napi::String::New(cb.Env(), formatted_str);
+        },
+        "toString");
+    // toString() is defined as a non-enumerable method so it does not show up
+    // in Object.keys()/spread and keeps the object a pure data shape.
+    version_obj.DefineProperty(
+        Napi::PropertyDescriptor::Value("toString",
+                                        to_string_fn,
+                                        static_cast<napi_property_attributes>(napi_writable | napi_configurable)));
+    return version_obj;
 }
 
 ov::TensorVector parse_input_data(const Napi::Value& input) {
@@ -355,17 +397,10 @@ ov::Tensor cast_to_tensor(const Napi::CallbackInfo& info, int index) {
 ov::Tensor cast_to_tensor(const Napi::TypedArray& typed_array,
                           const ov::Shape& shape,
                           const ov::element::Type_t& type) {
-    /* The difference between TypedArray::ArrayBuffer::Data() and e.g. Float32Array::Data() is byteOffset
-    because the TypedArray may have a non-zero `ByteOffset()` into the `ArrayBuffer`. */
-    if (typed_array.ByteOffset() != 0) {
-        OPENVINO_THROW("TypedArray.byteOffset has to be equal to zero.");
-    }
-    auto array_buffer = typed_array.ArrayBuffer();
-    auto tensor = ov::Tensor(type, shape, array_buffer.Data());
-    if (tensor.get_byte_size() != array_buffer.ByteLength()) {
-        OPENVINO_THROW("Memory allocated using shape and element::type mismatch passed data's size");
-    }
-    return tensor;
+    OPENVINO_ASSERT(typed_array.ByteOffset() == 0,
+                    "TypedArray.byteOffset must be zero for zero-copy tensor construction.");
+    auto impl = std::make_shared<ov::js::TensorImpl>(typed_array.Env(), typed_array, type, shape);
+    return ov::make_tensor(ov::SoPtr<ov::ITensor>{impl, nullptr});
 }
 
 void fill_tensor_from_strings(ov::Tensor& tensor, const Napi::Array& arr) {
@@ -590,4 +625,20 @@ std::string buffer_to_string(const Napi::Value& value) {
     Napi::Buffer<uint8_t> model_data = value.As<Napi::Buffer<uint8_t>>();
 
     return std::string(reinterpret_cast<char*>(model_data.Data()), model_data.Length());
+}
+
+uint32_t get_optimal_number_of_requests(const ov::CompiledModel& actual) {
+    try {
+        const auto supported_properties = actual.get_property(ov::supported_properties);
+        const auto has_optimal_num_of_requests =
+            std::find(supported_properties.begin(), supported_properties.end(), ov::optimal_number_of_infer_requests) !=
+            supported_properties.end();
+        OPENVINO_ASSERT(has_optimal_num_of_requests,
+                        "Can't load network: ",
+                        ov::optimal_number_of_infer_requests.name(),
+                        " is not supported! Please specify number of infer requests directly!");
+        return actual.get_property(ov::optimal_number_of_infer_requests);
+    } catch (const std::exception& ex) {
+        OPENVINO_THROW("Can't load network: ", ex.what(), ". Please specify number of infer requests directly!");
+    }
 }
